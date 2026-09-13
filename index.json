@@ -1,0 +1,5 @@
+{
+  "book": "Unknown book (set by tools/build_index.py)",
+  "note": "D-3: locations only, never book text. Pages are 0-based PDF page indices; bbox is [x0, y0, x1, y1] in PDF user space, origin bottom-left, in points. Generate a draft with tools/build_index.py, hand-correct it, then commit it here.",
+  "problems": {}
+}

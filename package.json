@@ -1,0 +1,25 @@
+{
+  "name": "idd-pset",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "IDD-PSET: Textbook Problem-Set Workbench",
+  "scripts": {
+    "postinstall": "node scripts/copy-pdfjs-assets.mjs",
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:py": "python -m unittest discover -s tools -p \"test_*.py\""
+  },
+  "dependencies": {
+    "pdfjs-dist": "^4.10.38"
+  },
+  "devDependencies": {
+    "@types/node": "^26.5.1",
+    "typescript": "^5.7.3",
+    "vite": "^6.0.11",
+    "vitest": "^3.0.5"
+  }
+}
