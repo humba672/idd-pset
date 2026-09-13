@@ -156,3 +156,27 @@ Decision changes are appended here with date and reason. D-numbers are never reu
     an optional one-line note worth reading back at review time. No textarea, no photo.
   - Q4 answered: public repo. Nothing book-derived is committed (C2), so Pages is free
     and no private-Pages plan is needed.
+
+- 2026-09-13 The books arrived (Thomas' Calculus: Early Transcendentals, 13th ed, and its
+  instructor solutions manual), and the first scan of them forced one decision change and
+  produced several findings. The change is a **proposal** until Rajiv rules:
+
+  - P-6 (amends D-5) **Keys carry the section.** Thomas numbers exercises per section,
+    not per chapter: section 1.1 has problems 1-72 and so does 1.2, so D-5's
+    `<chapter>.<number>` cannot tell 1.1's problem 5 from 1.2's. A canonical key is now
+    the dotted path to the problem plus an optional letter suffix - three parts for a
+    book numbered per section (`12.3.7`, `12.3.7a`), two for one numbered per chapter
+    (`3.14`), which keeps every example in D-5 valid. The parser accepts `12.3: 1, 5-9`,
+    `Section 12.3`, `§12.3 #7`, `12.3.7`, and a trailing `odd`/`even` on a range, since
+    that is how calculus assignments are written.
+
+  Findings, for the record:
+
+  - Q1's answer was nearly right: numbering is bare and restarts, but per *section*.
+  - Q2 confirmed by inspection: this is the instructor's manual, and it solves
+    even-numbered exercises, so coverage is genuinely complete.
+  - The file named "Multivariable" is the whole book: chapters 1-16 in both PDFs.
+  - Printed page = PDF page - 13 in the textbook and - 5 in the manual (D-6 offsets).
+  - Chapter review sets ("Chapter 1 Practice Exercises") belong to no section and are
+    deliberately left out of the index; anything assigned from them is workable through
+    the D-8 fallback. Indexing them needs a key form D-5 does not yet have.

@@ -20,9 +20,10 @@ no server to upload them to (C1, C2, D-2).
 
 ## The loop
 
-1. **Assignments** — paste the assignment as the course writes it: `Ch 3, pp. 180-190: 14,
-   16-20, 22a`, `3.14, 3.16-3.20`, one per line. The parser normalizes to `3.14`-style keys
-   and shows anything it could not read instead of dropping it (D-5).
+1. **Assignments** — paste the assignment as the course writes it: `12.3: 1, 5-9`,
+   `Section 12.3`, `§12.3 #7`, `12.3.7`, `12.3: 1-15 odd`, one per line. The parser
+   normalizes to canonical keys and shows anything it could not read instead of dropping
+   it (D-5).
 2. **Workspace** — the problem renders from the textbook; work it on paper; the solution
    stays hidden until you mark the problem attempted or explicitly reveal it (D-9).
    Verdicts (correct / partial / incorrect) are yours to set — nothing is auto-graded.
@@ -58,6 +59,16 @@ To fold an override export back in:
 ```sh
 python tools/build_index.py --merge index.json index.overrides.json -o index.json
 ```
+
+**Keys.** A key is the dotted path to the problem plus an optional letter suffix:
+`12.3.7` for a book numbered per section (Thomas), `3.14` for one numbered per chapter.
+
+**Shared instructions.** Thomas states a question once above a run of problems ("Find the
+angles between the vectors in Exercises 9-12...") and prints only the data under each
+number. The builder captures that instruction as its own region and attaches it to every
+problem in its range, so the workspace shows the question and the data together.
+
+**Page offsets for these books** (D-6, set in Settings): textbook **-13**, manual **-5**.
 
 **Coordinates.** `page` is a 0-based PDF page index. `bbox` is `[x0, y0, x1, y1]` in PDF
 user space: origin bottom-left, y upward, points. PyMuPDF's top-left rects are flipped once

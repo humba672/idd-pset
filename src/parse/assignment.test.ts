@@ -2,103 +2,124 @@
 import { describe, expect, it } from 'vitest'
 import { canonicalKey, compareKeys, parseAssignment, parseKey } from './assignment'
 
-const keysOf = (input: string, defaultChapter?: string) =>
-  parseAssignment(input, defaultChapter ? { defaultChapter } : {}).keys
+const keysOf = (input: string, defaultSection?: string) =>
+  parseAssignment(input, defaultSection ? { defaultSection } : {}).keys
 
 describe('canonical keys', () => {
-  it('formats chapter.number with optional suffix', () => {
-    expect(canonicalKey('3', 14)).toBe('3.14')
-    expect(canonicalKey('3', 14, 'A')).toBe('3.14a')
+  it('formats a dotted path with an optional suffix', () => {
+    expect(canonicalKey([3, 14])).toBe('3.14')
+    expect(canonicalKey([12, 3, 7])).toBe('12.3.7')
+    expect(canonicalKey([12, 3, 7], 'A')).toBe('12.3.7a')
   })
 
-  it('round-trips through parseKey', () => {
-    expect(parseKey('3.14a')).toEqual({ chapter: '3', number: 14, suffix: 'a' })
+  it('round-trips through parseKey at either depth', () => {
+    expect(parseKey('3.14')).toEqual({ parts: [3, 14], suffix: '' })
+    expect(parseKey('12.3.7a')).toEqual({ parts: [12, 3, 7], suffix: 'a' })
     expect(parseKey('14')).toBeNull()
   })
 
-  it('sorts by chapter, then number, then suffix', () => {
-    expect(['3.16', '3.2', '10.1', '3.2a'].sort(compareKeys)).toEqual([
-      '3.2',
-      '3.2a',
-      '3.16',
-      '10.1',
+  it('sorts by each part in turn, then by suffix', () => {
+    expect(['12.3.16', '12.3.2', '12.10.1', '12.3.2a', '2.1.9'].sort(compareKeys)).toEqual([
+      '2.1.9',
+      '12.3.2',
+      '12.3.2a',
+      '12.3.16',
+      '12.10.1',
     ])
   })
 })
 
-describe('parseAssignment', () => {
-  it('parses the notation in D-5 verbatim', () => {
-    expect(keysOf('3.14, 3.16-3.20, 3.22a')).toEqual([
+describe('section-numbered books (Thomas)', () => {
+  it('parses a section header followed by numbers', () => {
+    expect(keysOf('12.3: 1, 5-7')).toEqual(['12.3.1', '12.3.5', '12.3.6', '12.3.7'])
+    expect(keysOf('Section 12.3: 1, 5')).toEqual(['12.3.1', '12.3.5'])
+    expect(keysOf('§12.3 1, 5')).toEqual(['12.3.1', '12.3.5'])
+  })
+
+  it('carries the section across lines until a new header', () => {
+    expect(keysOf('Section 12.3\n1\n5-6\n12.4: 2')).toEqual([
+      '12.3.1',
+      '12.3.5',
+      '12.3.6',
+      '12.4.2',
+    ])
+  })
+
+  it('accepts fully-qualified keys with no header', () => {
+    expect(keysOf('12.3.7, 12.4.1')).toEqual(['12.3.7', '12.4.1'])
+  })
+
+  it('narrows a range with odd or even', () => {
+    expect(keysOf('12.3: 1-9 odd')).toEqual(['12.3.1', '12.3.3', '12.3.5', '12.3.7', '12.3.9'])
+    expect(keysOf('12.3: 1-8 even')).toEqual(['12.3.2', '12.3.4', '12.3.6', '12.3.8'])
+    expect(keysOf('12.3: 1-5 odds, 8')).toEqual(['12.3.1', '12.3.3', '12.3.5', '12.3.8'])
+  })
+
+  it('expands a letter run within one problem', () => {
+    expect(keysOf('12.3: 7a-c')).toEqual(['12.3.7a', '12.3.7b', '12.3.7c'])
+  })
+
+  it('keeps page references as hints rather than keys', () => {
+    const result = parseAssignment('12.3, pp. 700-705: 1, 2')
+    expect(result.keys).toEqual(['12.3.1', '12.3.2'])
+    expect(result.pageHints).toEqual(['700-705'])
+    expect(result.unrecognized).toEqual([])
+  })
+
+  it('reports a range that crosses sections', () => {
+    const result = parseAssignment('12.3.7-12.4.2')
+    expect(result.keys).toEqual([])
+    expect(result.unrecognized[0]?.reason).toBe('range crosses sections')
+  })
+})
+
+describe('chapter-numbered books', () => {
+  it('still parses the two-part notation in the original D-5', () => {
+    expect(keysOf('3.14, 3.16-3.18, 3.22a')).toEqual([
       '3.14',
       '3.16',
       '3.17',
       '3.18',
-      '3.19',
-      '3.20',
       '3.22a',
     ])
-    expect(keysOf('Ch 3: 14, 16-20')).toEqual(['3.14', '3.16', '3.17', '3.18', '3.19', '3.20'])
+    expect(keysOf('Ch 3: 14, 16-18')).toEqual(['3.14', '3.16', '3.17', '3.18'])
   })
+})
 
-  it('carries chapter context across lines until a new header', () => {
-    expect(keysOf('Chapter 3\n14\n16-17\nCh. 4: 1')).toEqual(['3.14', '3.16', '3.17', '4.1'])
-  })
-
-  it('accepts one problem per line', () => {
-    expect(keysOf('3.14\n3.15\n3.16')).toEqual(['3.14', '3.15', '3.16'])
-  })
-
+describe('forgiveness (C4)', () => {
   it('tolerates dashes, "to", and stray whitespace', () => {
-    expect(keysOf('Ch 3: 16 – 18')).toEqual(['3.16', '3.17', '3.18'])
-    expect(keysOf('Ch 3: 16 to 18')).toEqual(['3.16', '3.17', '3.18'])
-    expect(keysOf('  3.16 -3.18  ')).toEqual(['3.16', '3.17', '3.18'])
+    expect(keysOf('12.3: 6 – 8')).toEqual(['12.3.6', '12.3.7', '12.3.8'])
+    expect(keysOf('12.3: 6 to 8')).toEqual(['12.3.6', '12.3.7', '12.3.8'])
+    expect(keysOf('  12.3 :  6 -8  ')).toEqual(['12.3.6', '12.3.7', '12.3.8'])
   })
 
-  it('ignores filler words and section signs', () => {
-    expect(keysOf('Problems: 3.1, 3.2 and 3.3')).toEqual(['3.1', '3.2', '3.3'])
-    expect(keysOf('§3: exercises 1, 2')).toEqual(['3.1', '3.2'])
-  })
-
-  it('expands a letter run within one problem', () => {
-    expect(keysOf('3.14a-c')).toEqual(['3.14a', '3.14b', '3.14c'])
+  it('ignores filler words', () => {
+    expect(keysOf('12.3: problems 1, 2 and 3')).toEqual(['12.3.1', '12.3.2', '12.3.3'])
   })
 
   it('de-duplicates while keeping written order', () => {
-    expect(keysOf('3.5, 3.4, 3.5, 3.4-3.5')).toEqual(['3.5', '3.4'])
+    expect(keysOf('12.3: 5, 4, 5, 4-5')).toEqual(['12.3.5', '12.3.4'])
   })
 
-  it('keeps page references as hints rather than keys', () => {
-    const result = parseAssignment('Ch 3, pp. 180-190: 14, 15')
-    expect(result.keys).toEqual(['3.14', '3.15'])
-    expect(result.pageHints).toEqual(['180-190'])
-    expect(result.unrecognized).toEqual([])
-  })
-
-  it('reports bare numbers with no chapter instead of dropping them', () => {
+  it('reports bare numbers with no section instead of dropping them', () => {
     const result = parseAssignment('14, 16')
     expect(result.keys).toEqual([])
     expect(result.unrecognized.map((u) => u.text)).toEqual(['14', '16'])
+    expect(result.unrecognized[0]?.reason).toBe('no section given')
   })
 
-  it('uses a default chapter when one is supplied', () => {
-    expect(keysOf('14, 16', '3')).toEqual(['3.14', '3.16'])
+  it('uses a default section when one is supplied', () => {
+    expect(keysOf('14, 16', '12.3')).toEqual(['12.3.14', '12.3.16'])
   })
 
   it('reports ranges it refuses to expand', () => {
-    const backwards = parseAssignment('3.20-3.14')
-    expect(backwards.keys).toEqual([])
-    expect(backwards.unrecognized[0]?.reason).toBe('range runs backwards')
-
-    const crossing = parseAssignment('3.20-4.2')
-    expect(crossing.unrecognized[0]?.reason).toBe('range crosses chapters')
-
-    const huge = parseAssignment('3.1-3.999')
-    expect(huge.unrecognized[0]?.reason).toMatch(/longer than/)
+    expect(parseAssignment('12.3: 20-14').unrecognized[0]?.reason).toBe('range runs backwards')
+    expect(parseAssignment('12.3: 1-999').unrecognized[0]?.reason).toMatch(/longer than/)
   })
 
   it('reports unreadable fragments verbatim', () => {
-    const result = parseAssignment('Ch 3: 14, the hard one, 16')
-    expect(result.keys).toEqual(['3.14', '3.16'])
+    const result = parseAssignment('12.3: 14, the hard one, 16')
+    expect(result.keys).toEqual(['12.3.14', '12.3.16'])
     expect(result.unrecognized.map((u) => u.text)).toEqual(['the', 'hard', 'one'])
   })
 
