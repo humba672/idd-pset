@@ -180,3 +180,9 @@ Decision changes are appended here with date and reason. D-numbers are never reu
   - Chapter review sets ("Chapter 1 Practice Exercises") belong to no section and are
     deliberately left out of the index; anything assigned from them is workable through
     the D-8 fallback. Indexing them needs a key form D-5 does not yet have.
+
+- 2026-09-13 Rajiv: this install is for these two copies of the book and no others.
+
+  - P-7 (extends D-6) The page offsets measured from these PDFs, -13 and -5, are the
+    built-in defaults rather than zeros, so a fresh browser is usable without visiting
+    Settings first. Settings still overrides them, as D-6 requires.

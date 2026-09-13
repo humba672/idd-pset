@@ -68,7 +68,9 @@ angles between the vectors in Exercises 9-12...") and prints only the data under
 number. The builder captures that instruction as its own region and attaches it to every
 problem in its range, so the workspace shows the question and the data together.
 
-**Page offsets for these books** (D-6, set in Settings): textbook **-13**, manual **-5**.
+**Page offsets** (D-6): the app ships with the offsets for these copies already set -
+textbook **-13**, manual **-5** - because it is built around this one pair of PDFs.
+Settings overrides them if you ever swap in a different scan.
 
 **Coordinates.** `page` is a 0-based PDF page index. `bbox` is `[x0, y0, x1, y1]` in PDF
 user space: origin bottom-left, y upward, points. PyMuPDF's top-left rects are flipped once

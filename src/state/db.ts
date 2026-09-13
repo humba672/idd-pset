@@ -64,9 +64,16 @@ export interface Settings {
   renderScale: number
 }
 
+/**
+ * The offsets default to the copies this install is built around - Thomas' Calculus:
+ * Early Transcendentals 13th ed and its instructor manual - measured from their front
+ * matter: printed page 11 is PDF page 24 in the textbook, printed 3 is PDF 8 in the
+ * manual. Settings still overrides them (D-6); a different scan of the same book, or a
+ * different book, only needs the number changed there.
+ */
 export const DEFAULT_SETTINGS: Settings = {
-  textbookOffset: 0,
-  solutionOffset: 0,
+  textbookOffset: -13,
+  solutionOffset: -5,
   showExtractedText: false,
   renderScale: 2,
 }
