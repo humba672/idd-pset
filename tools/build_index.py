@@ -151,6 +151,8 @@ NEIGHBOUR_CLEARANCE = 3
 MIN_CONTINUATION = 8
 # How near a problem must start to a detected margin for it to count as a column.
 COLUMN_HIT_TOLERANCE = 14
+# How many pages ahead to look for the section a restart belongs to.
+SECTION_LOOKAHEAD = 2
 # The widest gap across which a line is still taken to belong to the problem below it.
 MAX_ADOPT_GAP = 8
 # How far above its label a block of maths may start and still be part of it.
@@ -402,12 +404,14 @@ class PageScan:
 def column_margins(
     lines: list[Line], page_width: float, min_gap: float = 80.0, min_support: int = 4
 ) -> list[float]:
-    """Where the columns of this page begin.
+    """Where the page's columns begin.
 
-    The left margin is simply the leftmost line. A second column is the strongest cluster
-    of line starts in the right-hand part of the page - strongest, not leftmost, because
-    a page of dense math is littered with stray fragments that each start their own line.
-    A real column has many lines beginning at the same x; a fragment has one.
+    The page's columns, not the grids set inside them: an instruction spans its column,
+    and a problem's box reaches across to the next column, so a run of short answers set
+    three across must not be mistaken for the page turning into three columns. The left
+    margin is the leftmost line; a second column is the leftmost well-supported cluster
+    in the right-hand part of the page - leftmost, not busiest, because indented
+    sub-parts outnumber the lines at the column's own margin.
     """
     if not lines:
         return [0.0]
@@ -415,12 +419,41 @@ def column_margins(
     right_half = [ln.rect[0] for ln in lines if ln.rect[0] >= page_width * 0.45]
     if right_half:
         buckets = Counter(round(x / 2) * 2 for x in right_half)
-        # Leftmost cluster with real support, not the biggest one: indented sub-parts
-        # ("a.", "b.", ...) often outnumber the lines at the column's own margin.
         for candidate in sorted(buckets):
             if buckets[candidate] >= min_support and candidate > left + min_gap:
                 return [left, float(candidate)]
     return [left]
+
+
+def number_margins(lines: list[Line], min_support: int = 3, merge: float = 12.0) -> list[float]:
+    """Where numbered lines line up.
+
+    A page can be laid out differently in different bands - dense working above, a grid
+    of short answers below - so the page's columns say little about where the answers in
+    that grid begin. What the numbers themselves agree on says it directly: three or more
+    starting at the same x is a column of problems, while fragments of maths that happen
+    to open with a digit agree with nothing.
+    """
+    xs = [
+        ln.rect[0]
+        for ln in lines
+        if PLAIN_NUMBER.match(ln.text.strip()) and not FALSE_START.match(ln.text.strip())
+    ]
+    if not xs:
+        return []
+    buckets = Counter(round(x / 2) * 2 for x in xs)
+    margins: list[float] = []
+    for candidate in sorted(x for x, count in buckets.items() if count >= min_support):
+        if margins and candidate - margins[-1] <= merge:
+            continue
+        margins.append(float(candidate))
+    return margins
+
+
+def start_margins(lines: list[Line], page_width: float) -> list[float]:
+    """Every place a problem could begin on this page: the page's own columns, plus
+    wherever numbered lines agree among themselves."""
+    return sorted(set(column_margins(lines, page_width)) | set(number_margins(lines)))
 
 
 def strict_pass(
@@ -432,7 +465,7 @@ def strict_pass(
 ) -> None:
     if not scan.lines:
         return
-    margins = column_margins(scan.lines, scan.page.rect.width)
+    margins = start_margins(scan.lines, scan.page.rect.width)
     for ln in scan.lines:
         if not any(m - 2 <= ln.rect[0] <= m + margin_tol for m in margins):
             continue
@@ -526,7 +559,7 @@ def regions_for_page(
     So problems are grouped into rows by their vertical position. A row of one takes the
     whole column; a row of several splits it, each problem reaching across to the next.
 
-    `barriers` are the shared instructions on this page, each as (top, left, right). A
+    `barriers` are the shared instructions on this page, each as (top, bottom, left). A
     problem stops above the instruction that introduces the problems after it - that
     paragraph is theirs, not a continuation of this one. Each carries where it starts,
     because a page has two columns and an instruction in one says nothing about where a
@@ -595,6 +628,19 @@ def regions_for_page(
         ):
             earlier = sorted(ordered_rows, key=lambda ln: (ln.rect[1], ln.rect[0]))[:position]
             limit = max((ln.rect[3] for ln in earlier), default=0.0)
+            # Nor above the instruction that introduces it: that paragraph's last line
+            # is the instruction's, however close it sits to the problem.
+            limit = max(
+                limit,
+                max(
+                    (
+                        bar_bottom
+                        for _bar_top, bar_bottom, bar_left in barriers
+                        if bar_bottom <= line.rect[1] + 0.5 and column_of(bar_left) == col
+                    ),
+                    default=0.0,
+                ),
+            )
             tops[id(line)] = content_top(line, column_lines, limit, blocked)
 
         # Anything above the first problem here continues the one before it.
@@ -613,9 +659,9 @@ def regions_for_page(
 
             barrier = min(
                 (
-                    top
-                    for top, bar_left, _bar_right in barriers
-                    if top > row[0][1].rect[1] and column_of(bar_left) == col
+                    bar_top
+                    for bar_top, _bar_bottom, bar_left in barriers
+                    if bar_top > row[0][1].rect[1] and column_of(bar_left) == col
                 ),
                 default=None,
             )
@@ -681,7 +727,7 @@ def packed_bottom(
 
 def instruction_blocks(
     scan: "PageScan", margins: list[float]
-) -> list[tuple[int, int, dict, float]]:
+) -> list[tuple[int, int, dict, float, float]]:
     """Find the shared instructions that govern a group of exercises.
 
     Thomas states the actual question once, above a run of problems ("Find the angles
@@ -690,7 +736,7 @@ def instruction_blocks(
     question at all, so each instruction is captured as its own region and attached to
     every problem in its range (D-3 allows a problem to have several regions).
     """
-    out: list[tuple[int, int, dict, float]] = []
+    out: list[tuple[int, int, dict, float, float]] = []
     if not scan.lines:
         return out
     page = scan.page
@@ -742,18 +788,24 @@ def instruction_blocks(
             else:
                 break
 
-        # It runs down to just above the first problem's box, which opens
-        # ASCENDER_MARGIN higher than that problem's own first line.
+        # It runs to the bottom of its own last line. Measuring back from the problem
+        # underneath instead would slice that line in half wherever the two sit close
+        # together, which in a tight setting is most of the time.
         below = [
             ln.rect[1]
             for ln in scan.hits.values()
             if column_of(ln.rect[0]) == col and ln.rect[1] > line.rect[1]
         ]
-        bottom = (
-            min(below) - ASCENDER_MARGIN - NEIGHBOUR_CLEARANCE
-            if below
-            else line.rect[3] + CONTENT_MARGIN
-        )
+        if below:
+            first_problem = min(below)
+            own = [
+                r[3]
+                for r in (ln.rect for ln in scan.lines)
+                if column_of(r[0]) == col and top - 1 <= r[1] < first_problem
+            ]
+            bottom = min((max(own) if own else line.rect[3]) + 1, first_problem - 1)
+        else:
+            bottom = line.rect[3] + CONTENT_MARGIN
 
         left = margins[col]
         right_bound = margins[col + 1] - 6 if col + 1 < len(margins) else page.rect.width
@@ -769,6 +821,7 @@ def instruction_blocks(
                 high,
                 {"page": scan.index, "bbox": flip_rect([left, top, right, bottom], height)},
                 top,
+                bottom,
             )
         )
     return out
@@ -792,20 +845,24 @@ def scan_section(
 
     # Collect the shared instructions once per section, then hand each problem the one
     # that governs it.
-    shared: list[tuple[int, int, dict, float]] = []
+    shared: list[tuple[int, int, dict, float, float]] = []
     for scan in scans:
         if scan.hits:
             shared.extend(
                 instruction_blocks(scan, column_margins(scan.lines, scan.page.rect.width))
             )
     # Deduplicate: an instruction that wraps can be recognised from either of its lines.
-    shared = list({(low, high, top): (low, high, region, top) for low, high, region, top in shared}.values())
+    shared = list(
+        {
+            (low, high, top): (low, high, region, top, bottom)
+            for low, high, region, top, bottom in shared
+        }.values()
+    )
 
     barriers_by_page: dict[int, tuple[tuple[float, float, float], ...]] = {}
-    for _low, _high, region, top in shared:
-        bbox = region["bbox"]
+    for _low, _high, region, top, bottom in shared:
         barriers_by_page.setdefault(region["page"], ())
-        barriers_by_page[region["page"]] += ((top, bbox[0], bbox[2]),)
+        barriers_by_page[region["page"]] += ((top, bottom, region["bbox"][0]),)
 
     carried: str | None = None
     for scan in scans:
@@ -1019,7 +1076,7 @@ def candidates_in_order(scan: "PageScan", margin_tol: float) -> list[Candidate]:
     """Numbered lines starting at a column margin, in the order a reader meets them."""
     if not scan.lines:
         return []
-    margins = column_margins(scan.lines, scan.page.rect.width)
+    margins = start_margins(scan.lines, scan.page.rect.width)
 
     def column_of(x: float) -> int:
         best = 0
@@ -1107,6 +1164,25 @@ def attribute_runs(
             # a page that names a section, which is why this outranks the head.
             report.dropped += len(run)
             continue
+        elif here is None and restarted and run_pages[0] > last_head_page:
+            # Numbering has restarted on pages naming no section. Either the next
+            # section has begun a page early - its first page carries the even-page
+            # running head - or this is a chapter review set, which belongs to no
+            # section at all. The page that names a section next settles it: close by
+            # means the section started here, far off means there is nothing to file
+            # this under, and filing it under the section before would put the wrong
+            # solution against a problem.
+            upcoming = min((p for p in own_head if p > run_pages[-1]), default=None)
+            if (
+                upcoming is not None
+                and upcoming - run_pages[-1] <= SECTION_LOOKAHEAD
+                and own_head[upcoming] != current
+            ):
+                current = own_head[upcoming]
+                section_high = 0
+            else:
+                report.dropped += len(run)
+                continue
         elif here is None and run_pages[0] > last_head_page + 1:
             report.dropped += len(run)
             continue
