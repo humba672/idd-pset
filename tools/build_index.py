@@ -76,7 +76,29 @@ SECTION_HEAD = re.compile(r"(?:section\s+)?\b(\d{1,2})\.(\d{1,2})\b(?=\s+[A-Za-z
 
 # "Find the angles between the vectors in Exercises 9-12 ..." - one instruction standing
 # for a run of problems that print only their data underneath.
-INSTRUCTION_RANGE = re.compile(r"exercises?\s+(\d{1,3})\s*[–—-]\s*(\d{1,3})", re.IGNORECASE)
+INSTRUCTION_RANGE = re.compile(
+    r"exercises?\s+(?P<low>\d{1,3})\s*(?P<sep>[–—-]|and|&|,)\s*(?P<high>\d{1,3})",
+    re.IGNORECASE,
+)
+
+
+def instruction_span(text: str) -> tuple[int, int] | None:
+    """The run of exercises an instruction introduces, or None.
+
+    "In Exercises 37-40" is a range. "In Exercises 25 and 26" is the same thing said
+    differently, and the book uses both. A list ("Exercises 1, 3, and 5") is not a range,
+    so anything joined by a word or a comma has to be consecutive to count.
+    """
+    m = INSTRUCTION_RANGE.search(text)
+    if not m:
+        return None
+    low, high = int(m.group("low")), int(m.group("high"))
+    dashed = re.fullmatch(r"[–—-]", m.group("sep")) is not None
+    if not dashed and high - low != 1:
+        return None
+    if not (1 <= low < high <= MAX_NUMBER and high - low <= 60):
+        return None
+    return low, high
 
 # A line that opens with a number is not always a problem: "0.5 mol of ...", "3.14159",
 # page headers and figure captions all look similar. These guards cut the obvious ones.
@@ -447,7 +469,7 @@ def continuation(
         for ln in scan.lines
         if left - 8 <= ln.rect[0] < right_bound
         and ln.rect[3] <= ceiling
-        and INSTRUCTION_RANGE.search(ln.text)
+        and instruction_span(ln.text)
     ]
     if instruction_tops:
         cut = min(instruction_tops) - NEIGHBOUR_CLEARANCE
@@ -638,21 +660,24 @@ def instruction_blocks(scan: "PageScan", margins: list[float]) -> list[tuple[int
     for index, line in enumerate(ordered):
         if (round(line.rect[0]), round(line.rect[1])) in hit_tops:
             continue  # a problem, not an instruction
-        m = INSTRUCTION_RANGE.search(line.text)
-        if not m:
+        span = instruction_span(line.text)
+        if not span:
             continue
-        low, high = int(m.group(1)), int(m.group(2))
-        if not (1 <= low < high <= MAX_NUMBER and high - low <= 60):
-            continue
+        low, high = span
         col = column_of(line.rect[0])
 
         # The sentence may start on an earlier line ("Find the angles between the
-        # vectors" / "in Exercises 9-12"), so walk up while the lines stay close.
+        # vectors" / "in Exercises 9-12"), so walk up while the lines stay close. Only
+        # lines starting at the same margin count: an instruction is set full width,
+        # while the problem above it has its body indented under its number, and that
+        # body is emphatically not part of the instruction.
         top = line.rect[1]
         for earlier in reversed(ordered[:index]):
             if column_of(earlier.rect[0]) != col:
                 break
             if (round(earlier.rect[0]), round(earlier.rect[1])) in hit_tops:
+                break
+            if abs(earlier.rect[0] - line.rect[0]) > 2:
                 break
             if 0 <= top - earlier.rect[3] <= 6:
                 top = earlier.rect[1]

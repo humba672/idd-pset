@@ -12,6 +12,7 @@ from types import SimpleNamespace
 
 from build_index import (
     Line,
+    instruction_span,
     ScanReport,
     attribute_runs,
     build_index,
@@ -107,6 +108,29 @@ class TestGeometry(unittest.TestCase):
         # The box means exactly what it covers; the app adds its own breathing room when
         # it draws, and padding at both ends used to spill into the neighbouring problem.
         self.assertEqual(flip_rect([72, 100, 300, 200], 792), [72.0, 592.0, 300.0, 692.0])
+
+
+class TestInstructionSpan(unittest.TestCase):
+    """Which exercises does a shared instruction introduce? (D-3.)"""
+
+    def test_dashed_ranges(self):
+        self.assertEqual(instruction_span("In Exercises 37-40, use the result"), (37, 40))
+        self.assertEqual(instruction_span("In Exercises 37–40, use the result"), (37, 40))
+        self.assertEqual(
+            instruction_span("Find the angles between the vectors in Exercises 9-12"), (9, 12)
+        )
+
+    def test_a_pair_may_be_joined_by_a_word(self):
+        self.assertEqual(instruction_span("In Exercises 25 and 26, find the torque"), (25, 26))
+        self.assertEqual(instruction_span("Exercises 25 & 26 ask for"), (25, 26))
+
+    def test_a_list_is_not_a_range(self):
+        # "1, 3, and 5" names three exercises, not everything from 1 to 3.
+        self.assertIsNone(instruction_span("In Exercises 1, 3, and 5 do something"))
+
+    def test_rejects_nonsense(self):
+        self.assertIsNone(instruction_span("no range here"))
+        self.assertIsNone(instruction_span("In Exercises 40-37, backwards"))
 
 
 class TestColumnMargins(unittest.TestCase):
