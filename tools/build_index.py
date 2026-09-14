@@ -265,6 +265,34 @@ def page_lines(page) -> list[Line]:
     return out
 
 
+def page_shapes(page) -> list[list[float]]:
+    """Figures, in PyMuPDF coordinates.
+
+    A problem's box has to cover its figure, and a figure is not text: the manual embeds
+    them as images and the textbook draws them as vector paths, so neither shows up in
+    the line list. Anything approaching the size of the page is ignored - that is a rule,
+    a border or a background wash, not a figure.
+    """
+    limit_w = page.rect.width * 0.9
+    limit_h = page.rect.height * 0.6
+    out: list[list[float]] = []
+
+    for image in page.get_images(full=True):
+        try:
+            rects = page.get_image_rects(image[0])
+        except Exception:  # pragma: no cover - malformed image entry
+            continue
+        for r in rects:
+            if r.width <= limit_w and r.height <= limit_h and r.width > 1 and r.height > 1:
+                out.append([r.x0, r.y0, r.x1, r.y1])
+
+    for drawing in page.get_drawings():
+        r = drawing["rect"]
+        if r.width <= limit_w and r.height <= limit_h and r.width > 1 and r.height > 1:
+            out.append([r.x0, r.y0, r.x1, r.y1])
+    return out
+
+
 def parse_page_range(spec: str | None, total: int) -> range:
     """`--pages 10-40` in 0-based PDF page indices (D-3)."""
     if not spec:
@@ -324,6 +352,7 @@ class PageScan:
     lines: list[Line]
     bottom_limit: float
     hits: dict[int, Line] = field(default_factory=dict)
+    shapes: list[list[float]] = field(default_factory=list)
 
 
 def column_margins(
@@ -488,6 +517,10 @@ def regions_for_page(
             continue
         column_lines = [
             ln.rect for ln in scan.lines if left - 8 <= ln.rect[0] < col_right
+        ] + [
+            shape
+            for shape in scan.shapes
+            if left - 8 <= shape[0] < col_right and shape[3] <= scan.bottom_limit
         ]
 
         # Group into rows: problems whose first lines sit at the same height.
@@ -760,7 +793,8 @@ def scan_by_heading(
             bottom = window.end_y if page_index == window.end_page else page.rect.height - 30
             lines = [ln for ln in page_lines(page) if top <= ln.rect[1] < bottom]
             if lines:
-                scans.append(PageScan(page_index, page, lines, bottom))
+                shapes = [sh for sh in page_shapes(page) if top <= sh[1] < bottom]
+                scans.append(PageScan(page_index, page, lines, bottom, shapes=shapes))
         scan_section(
             scans, pattern, window.chapter, str(window.section), margin_tol, regions, report
         )
@@ -964,7 +998,11 @@ def scan_by_flow(
                 chapter = int(c.group(1))
         body = [ln for ln in lines if ln.rect[1] >= head_limit]
         if body:
-            scans.append(PageScan(page_index, page, body, page.rect.height - 36))
+            head_limit = page.rect.height * head_frac
+            shapes = [sh for sh in page_shapes(page) if sh[1] >= head_limit]
+            scans.append(
+                PageScan(page_index, page, body, page.rect.height - 36, shapes=shapes)
+            )
 
     if not sequence:
         report.unsectioned_pages = len(scans)
@@ -1018,7 +1056,9 @@ def scan_plain(
             m = CHAPTER_HEADING.match(ln.text.strip())
             if m:
                 running = int(m.group(1))
-        scan = PageScan(page_index, page, lines, page.rect.height - 36)
+        scan = PageScan(
+            page_index, page, lines, page.rect.height - 36, shapes=page_shapes(page)
+        )
         if groups and groups[-1][0] == running:
             groups[-1][1].append(scan)
         else:
