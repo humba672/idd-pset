@@ -61,7 +61,8 @@ export interface Settings {
   textbookOffset: number
   solutionOffset: number
   showExtractedText: boolean
-  renderScale: number
+  /** How large a region appears: 1 = printed size, 0 = fit the width of the pane. */
+  zoom: number
 }
 
 /**
@@ -75,7 +76,7 @@ export const DEFAULT_SETTINGS: Settings = {
   textbookOffset: -13,
   solutionOffset: -5,
   showExtractedText: false,
-  renderScale: 2,
+  zoom: 0,
 }
 
 /** D-8: a locally drawn region for a key missing from the committed index. */
@@ -182,10 +183,11 @@ export async function saveAttempt(attempt: Attempt): Promise<Attempt> {
 }
 
 export async function loadSettings(): Promise<Settings> {
-  const row = await get<Settings & { id: string }>(STORE_SETTINGS, 'settings')
+  const row = await get<Settings & { id: string; renderScale?: number }>(STORE_SETTINGS, 'settings')
   if (!row) return { ...DEFAULT_SETTINGS }
-  const { id: _id, ...rest } = row
-  return { ...DEFAULT_SETTINGS, ...rest }
+  const { id: _id, renderScale, ...rest } = row
+  // `renderScale` was this setting's earlier name.
+  return { ...DEFAULT_SETTINGS, ...(renderScale ? { zoom: renderScale } : {}), ...rest }
 }
 
 export async function saveSettings(settings: Settings): Promise<void> {

@@ -57,7 +57,7 @@ export function regionPicker(options: RegionPickerOptions): HTMLElement {
       pageInput.value = String(page + 1)
       // D-6: printed page = PDF page + offset. Shown only to help the user navigate.
       pageLabel.textContent = `PDF page ${page + 1} of ${total} (printed p. ${page + offset + 1})`
-      mapping = await renderPage(slot, page, canvas, settings.renderScale)
+      mapping = await renderPage(slot, page, canvas, settings.zoom)
       selection = null
       marquee.hidden = true
       addButton.disabled = true

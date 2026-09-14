@@ -85,8 +85,11 @@ FALSE_START = re.compile(
     re.IGNORECASE,
 )
 
-# Points left between a region's bottom and the next problem's first line.
-NEXT_PROBLEM_GAP = 4
+# Points of breathing room under a problem's last line, for maths that paints
+# outside the box PyMuPDF reports.
+CONTENT_MARGIN = 3
+# The same, above its first line, where radicals and fractions overhang.
+ASCENDER_MARGIN = 4
 
 MAX_CHAPTER = 99
 MAX_NUMBER = 999
@@ -404,11 +407,8 @@ def regions_for_scan(
             for ln in scan.hits.values()
             if column_of(ln.rect[0]) == col and ln.rect[1] > line.rect[1]
         ]
-        if later:
-            bottom = min(later) - NEXT_PROBLEM_GAP
-        else:
-            below = [r[3] for r in in_column if line.rect[1] < r[3] <= scan.bottom_limit]
-            bottom = max(below) if below else scan.bottom_limit
+        bottom = content_bottom(line, in_column, min(later) if later else None, scan.bottom_limit)
+        top = content_top(line, in_column)
         right = min(max((r[2] for r in in_column), default=line.rect[2]), right_bound)
         key = (
             normalize_key(chapter, section, number)
@@ -416,10 +416,7 @@ def regions_for_scan(
             else normalize_key(chapter, number)
         )
         out.append(
-            (
-                key,
-                {"page": scan.index, "bbox": flip_rect([left, line.rect[1], right, bottom], height)},
-            )
+            (key, {"page": scan.index, "bbox": flip_rect([left, top, right, bottom], height)})
         )
     return out
 
@@ -478,7 +475,9 @@ def instruction_blocks(scan: "PageScan", margins: list[float]) -> list[tuple[int
             for ln in scan.hits.values()
             if column_of(ln.rect[0]) == col and ln.rect[1] > line.rect[1]
         ]
-        bottom = min(below) - NEXT_PROBLEM_GAP if below else line.rect[3] + 2
+        # An instruction runs to just above the first problem's box, which opens
+        # ASCENDER_MARGIN higher than the problem's own first line.
+        bottom = min(below) - ASCENDER_MARGIN - 2 if below else line.rect[3] + CONTENT_MARGIN
 
         left = margins[col]
         right_bound = margins[col + 1] - 6 if col + 1 < len(margins) else page.rect.width
@@ -615,6 +614,48 @@ def scan_by_heading(
 PLAIN_NUMBER = re.compile(r"^\s*(\d{1,3})[a-z]?\s*[.)](?:\s|$)")
 
 
+def content_top(line: Line, column_lines: list[list[float]]) -> float:
+    """Where a problem's box should start.
+
+    A radical sign or a tall fraction paints above the line box PyMuPDF reports, so the
+    box opens a little higher - but never so high that it eats into whatever sits above.
+    """
+    above = [rect[3] for rect in column_lines if rect[3] <= line.rect[1] + 0.5]
+    room = line.rect[1] - max(above) if above else ASCENDER_MARGIN
+    return line.rect[1] - min(ASCENDER_MARGIN, max(0.0, room - 1))
+
+
+def content_bottom(
+    line: Line,
+    column_lines: list[list[float]],
+    next_top: float | None,
+    floor: float,
+) -> float:
+    """Where a problem's box should end.
+
+    Bound it by the problem's own last line of text rather than by wherever the next
+    problem starts: measuring down from the next problem clips the current one whenever
+    the two sit close together, and maths routinely paints outside the line box PyMuPDF
+    reports for it, so a little margin is added underneath.
+
+    The cut is strict: everything from the next problem's first line down is left out.
+    Where the manual sets answers as a table, the last cell of a row can wrap onto a line
+    level with the next answer, and that fragment is lost - but a horizontal slice cannot
+    keep it without also showing the answer below, which is the worse mistake.
+    """
+    mine = [
+        rect[3]
+        for rect in column_lines
+        if rect[1] >= line.rect[1] - 1
+        and rect[3] <= floor
+        and (next_top is None or rect[1] < next_top - 1)
+    ]
+    bottom = (max(mine) if mine else line.rect[3]) + CONTENT_MARGIN
+    if next_top is not None:
+        bottom = min(bottom, next_top - 1)
+    return min(bottom, floor)
+
+
 def build_regions(scan: "PageScan", entries: list[tuple[str, Line]]) -> list[tuple[str, dict]]:
     """Turn this page's problem starts into bboxes (D-3).
 
@@ -649,17 +690,11 @@ def build_regions(scan: "PageScan", entries: list[tuple[str, Line]]) -> list[tup
             for _k, other in entries
             if column_of(other.rect[0]) == col and other.rect[1] > line.rect[1]
         ]
-        if later:
-            bottom = min(later) - NEXT_PROBLEM_GAP
-        else:
-            below = [r[3] for r in in_column if line.rect[1] < r[3] <= scan.bottom_limit]
-            bottom = max(below) if below else scan.bottom_limit
+        bottom = content_bottom(line, in_column, min(later) if later else None, scan.bottom_limit)
+        top = content_top(line, in_column)
         right = min(max((r[2] for r in in_column), default=line.rect[2]), right_bound)
         out.append(
-            (
-                key,
-                {"page": scan.index, "bbox": flip_rect([left, line.rect[1], right, bottom], height)},
-            )
+            (key, {"page": scan.index, "bbox": flip_rect([left, top, right, bottom], height)})
         )
     return out
 

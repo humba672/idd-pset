@@ -120,7 +120,7 @@ function solutionPanel(
     }
     const box = el('div', { class: 'render-box' })
     panel.append(box, extractedTextToggle('solutions', problem.solution, settings))
-    void renderInto(box, 'solutions', problem.solution, settings.renderScale)
+    void renderInto(box, 'solutions', problem.solution, settings.zoom)
     panel.append(
       el('p', {
         class: 'muted',
@@ -211,7 +211,7 @@ function problemPane(
   } else {
     const box = el('div', { class: 'render-box' })
     pane.append(box, extractedTextToggle('textbook', problem.text, settings))
-    void renderInto(box, 'textbook', problem.text, settings.renderScale)
+    void renderInto(box, 'textbook', problem.text, settings.zoom)
 
     if (problem.textSource === 'override') {
       // A box drawn by hand is easy to get wrong; D-8 is no use if it cannot be redrawn.

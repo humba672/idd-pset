@@ -140,12 +140,12 @@ export async function renderReview(root: HTMLElement, assignmentId: string): Pro
 
     // Rendering is sequential on purpose: pdf.js is happier, and review pages can be long.
     if (!problem.missing) {
-      await renderRegions('textbook', problem.text, problemBox, settings.renderScale).catch(
+      await renderRegions('textbook', problem.text, problemBox, settings.zoom).catch(
         (err: Error) => problemBox.append(el('p', { class: 'error', text: err.message })),
       )
     }
     if (problem.hasSolution) {
-      await renderRegions('solutions', problem.solution, solutionBox, settings.renderScale).catch(
+      await renderRegions('solutions', problem.solution, solutionBox, settings.zoom).catch(
         (err: Error) => solutionBox.append(el('p', { class: 'error', text: err.message })),
       )
     }

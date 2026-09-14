@@ -2,7 +2,6 @@
 // the override export (D-8).
 
 import {
-  DEFAULT_SETTINGS,
   clearStore,
   exportAll,
   importAll,
@@ -87,7 +86,16 @@ async function pdfCard(slot: PdfSlot, reload: () => void): Promise<HTMLElement> 
 function offsetsCard(settings: Settings, reload: () => void): HTMLElement {
   const textbook = el('input', { type: 'number', value: String(settings.textbookOffset) })
   const solutions = el('input', { type: 'number', value: String(settings.solutionOffset) })
-  const scale = el('input', { type: 'number', min: '1', max: '4', step: '0.5', value: String(settings.renderScale) })
+  const zoom = el('select', {}) as HTMLSelectElement
+  for (const [value, label] of [
+    ['0', 'Fit the pane'],
+    ['1', '1x (printed size)'],
+    ['1.5', '1.5x'],
+    ['2', '2x'],
+    ['3', '3x'],
+  ] as const) {
+    zoom.append(el('option', { value, text: label, selected: String(settings.zoom) === value }))
+  }
   const extracted = el('input', { type: 'checkbox', checked: settings.showExtractedText })
 
   return el(
@@ -103,7 +111,7 @@ function offsetsCard(settings: Settings, reload: () => void): HTMLElement {
       { class: 'row' },
       el('div', { class: 'field' }, el('label', { text: 'Textbook offset' }), textbook),
       el('div', { class: 'field' }, el('label', { text: 'Solution manual offset' }), solutions),
-      el('div', { class: 'field' }, el('label', { text: 'Render scale (canvas px per point)' }), scale),
+      el('div', { class: 'field' }, el('label', { text: 'Problem size' }), zoom),
     ),
     el('div', { class: 'field' }, el('label', { text: 'Show extracted text by default (best-effort, D-7)' }), extracted),
     el(
@@ -117,7 +125,7 @@ function offsetsCard(settings: Settings, reload: () => void): HTMLElement {
             await saveSettings({
               textbookOffset: Number(textbook.value) || 0,
               solutionOffset: Number(solutions.value) || 0,
-              renderScale: Math.min(4, Math.max(1, Number(scale.value) || DEFAULT_SETTINGS.renderScale)),
+              zoom: Math.min(4, Math.max(0, Number(zoom.value))),
               showExtractedText: extracted.checked,
             })
             toast('Settings saved.')

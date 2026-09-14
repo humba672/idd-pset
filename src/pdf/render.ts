@@ -79,8 +79,30 @@ async function getPage(slot: PdfSlot, pageIndex: number): Promise<PDFPageProxy> 
 export interface RenderOptions {
   /** Omit to render the whole page (D-8 fallback view). */
   bbox?: Bbox | null
-  /** Canvas pixels per PDF point. 2 is readable on a typical display (D-7). */
-  scale?: number
+  /**
+   * How large the region appears, relative to the printed page (D-7). A textbook column
+   * is only about 250pt across, so drawing it at actual size gives a postage stamp.
+   * `0` means fit the width of whatever contains the canvas, which is the default and
+   * what you want while working: the problem fills the pane.
+   */
+  zoom?: number
+}
+
+/** Beyond this the canvas is being stretched, and stretching only adds blur. */
+const MAX_FIT_ZOOM = 4
+
+/** Canvas pixels per point: the display ratio, so enlarging stays sharp. */
+function canvasScaleFor(zoom: number): number {
+  const ratio = typeof window === 'undefined' ? 1 : Math.min(window.devicePixelRatio || 1, 2)
+  return zoom * ratio
+}
+
+/** Resolves `zoom: 0` against the space the canvas actually has. */
+function resolveZoom(zoom: number, canvas: HTMLCanvasElement, widthPt: number): number {
+  if (zoom > 0) return zoom
+  const available = canvas.parentElement?.clientWidth ?? 0
+  if (!available || !widthPt) return 2
+  return Math.min(MAX_FIT_ZOOM, Math.max(1, available / widthPt))
 }
 
 /**
@@ -91,17 +113,30 @@ export async function renderRegion(
   slot: PdfSlot,
   pageIndex: number,
   canvas: HTMLCanvasElement,
-  { bbox = null, scale = 2 }: RenderOptions = {},
+  { bbox = null, zoom = 2 }: RenderOptions = {},
 ): Promise<{ width: number; height: number }> {
   const page = await getPage(slot, pageIndex)
+
+  // Measure the region in points first, so `zoom: 0` can be resolved against the pane.
+  const padded: Bbox | null = bbox
+    ? [bbox[0] - PAD, bbox[1] - PAD, bbox[2] + PAD, bbox[3] + PAD]
+    : null
+  const unscaled = page.getViewport({ scale: 1 })
+  const regionWidthPt = padded
+    ? Math.abs(
+        unscaled.convertToViewportRectangle(padded)[2] -
+          unscaled.convertToViewportRectangle(padded)[0],
+      )
+    : unscaled.width
+  const effectiveZoom = resolveZoom(zoom, canvas, regionWidthPt)
+  const scale = canvasScaleFor(effectiveZoom)
   const viewport = page.getViewport({ scale })
 
   let width = viewport.width
   let height = viewport.height
   let transform: number[] | undefined
 
-  if (bbox) {
-    const padded: Bbox = [bbox[0] - PAD, bbox[1] - PAD, bbox[2] + PAD, bbox[3] + PAD]
+  if (padded) {
     const r = viewport.convertToViewportRectangle(padded)
     const x0 = Math.min(r[0], r[2])
     const y0 = Math.min(r[1], r[3])
@@ -117,7 +152,7 @@ export async function renderRegion(
 
   canvas.width = pxWidth
   canvas.height = pxHeight
-  canvas.style.width = `${Math.round(pxWidth / scale)}px`
+  canvas.style.width = `${Math.round((pxWidth / scale) * effectiveZoom)}px`
   canvas.style.height = 'auto'
 
   const ctx = canvas.getContext('2d')
@@ -144,14 +179,14 @@ export async function renderRegions(
   slot: PdfSlot,
   regions: Region[],
   container: HTMLElement,
-  scale = 2,
+  zoom = 2,
 ): Promise<void> {
   container.replaceChildren()
   for (const region of regions) {
     const canvas = document.createElement('canvas')
     canvas.className = 'render'
     container.append(canvas)
-    await renderRegion(slot, region.page, canvas, { bbox: region.bbox, scale })
+    await renderRegion(slot, region.page, canvas, { bbox: region.bbox, zoom })
   }
 }
 
@@ -203,14 +238,14 @@ export async function renderPage(
   slot: PdfSlot,
   pageIndex: number,
   canvas: HTMLCanvasElement,
-  scale = 2,
+  zoom = 2,
 ): Promise<PageRender> {
   const page = await getPage(slot, pageIndex)
-  const viewport = page.getViewport({ scale })
-  await renderRegion(slot, pageIndex, canvas, { bbox: null, scale })
+  const viewport = page.getViewport({ scale: 1 })
+  await renderRegion(slot, pageIndex, canvas, { bbox: null, zoom })
   return {
-    width: viewport.width / scale,
-    height: viewport.height / scale,
+    width: viewport.width,
+    height: viewport.height,
     toPdfPoint(x, y) {
       const [px, py] = viewport.convertToPdfPoint(x, y)
       return [px as number, py as number]
