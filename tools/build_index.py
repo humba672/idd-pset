@@ -100,6 +100,11 @@ def instruction_span(text: str) -> tuple[int, int] | None:
         return None
     return low, high
 
+# "a.", "b.", "c)" - a labelled part of the problem above, never the start of what
+# follows. Vertical distance alone cannot tell the two apart: the gaps inside a list of
+# parts set in tall maths are wider than the gap to the next problem.
+SUBPART_LABEL = re.compile(r"^\s*[a-z][.)]\s")
+
 # A line that opens with a number is not always a problem: "0.5 mol of ...", "3.14159",
 # page headers and figure captions all look similar. These guards cut the obvious ones.
 FALSE_START = re.compile(
@@ -557,13 +562,16 @@ def regions_for_page(
 
         # Each problem's real top, which may sit above its own first line.
         tops: dict[int, float] = {}
+        blocked = frozenset(
+            tuple(ln.rect) for ln in scan.lines if SUBPART_LABEL.match(ln.text)
+        )
         ordered_rows = [line for row in rows for _key, line in row]
         for position, line in enumerate(
             sorted(ordered_rows, key=lambda ln: (ln.rect[1], ln.rect[0]))
         ):
             earlier = sorted(ordered_rows, key=lambda ln: (ln.rect[1], ln.rect[0]))[:position]
             limit = max((ln.rect[3] for ln in earlier), default=0.0)
-            tops[id(line)] = content_top(line, column_lines, limit)
+            tops[id(line)] = content_top(line, column_lines, limit, blocked)
 
         # Anything above the first problem here continues the one before it.
         run_on = continuation(scan, rows[0][0][1], column_lines, left, col_right)
@@ -845,7 +853,12 @@ def scan_by_heading(
 PLAIN_NUMBER = re.compile(r"^\s*(\d{1,3})[a-z]?\s*[.)](?:\s|$)")
 
 
-def content_top(line: Line, column_lines: list[list[float]], limit: float = 0.0) -> float:
+def content_top(
+    line: Line,
+    column_lines: list[list[float]],
+    limit: float = 0.0,
+    blocked: frozenset[tuple[float, ...]] = frozenset(),
+) -> float:
     """Where a problem's box should start.
 
     Maths does not sit neatly under the line that introduces it. A cross product prints
@@ -855,7 +868,8 @@ def content_top(line: Line, column_lines: list[list[float]], limit: float = 0.0)
     determinant it belongs to instead of trailing the solution before it.
 
     `limit` is the bottom of the previous problem's own first line: nothing above that
-    can belong here.
+    can belong here. `blocked` holds lines that announce themselves as parts of the
+    problem above - "a.", "b." - which no amount of proximity can claim.
     """
     top = line.rect[1]
     above = sorted(
@@ -865,6 +879,8 @@ def content_top(line: Line, column_lines: list[list[float]], limit: float = 0.0)
     for index, rect in enumerate(above):
         if rect[3] > top:
             continue
+        if tuple(rect) in blocked:
+            break
         gap_below = top - rect[3]
         higher = [r[3] for r in above[index + 1 :] if r[3] <= rect[1] + 0.5]
         gap_above = rect[1] - max(higher) if higher else float("inf")

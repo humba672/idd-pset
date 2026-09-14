@@ -12,6 +12,8 @@ from types import SimpleNamespace
 
 from build_index import (
     Line,
+    SUBPART_LABEL,
+    content_top,
     instruction_span,
     ScanReport,
     attribute_runs,
@@ -108,6 +110,33 @@ class TestGeometry(unittest.TestCase):
         # The box means exactly what it covers; the app adds its own breathing room when
         # it draws, and padding at both ends used to spill into the neighbouring problem.
         self.assertEqual(flip_rect([72, 100, 300, 200], 792), [72.0, 592.0, 300.0, 692.0])
+
+
+class TestContentTop(unittest.TestCase):
+    """Where a problem's box starts, when maths sits above the line introducing it."""
+
+    def rect(self, y0, y1, x0=64.0, x1=300.0):
+        return [x0, y0, x1, y1]
+
+    def test_adopts_a_row_sitting_just_above_its_own_line(self):
+        # A cross product prints "i j k" above the text saying "u x v =".
+        line = Line(text="u x v =", rect=self.rect(142, 153, x0=86), size=10.0)
+        column = [self.rect(100, 111), self.rect(127, 138, x0=117), line.rect]
+        self.assertLess(content_top(line, column), 130)
+
+    def test_leaves_a_labelled_part_with_the_problem_above(self):
+        # "h. ..." belongs to the problem it is a part of, however close the next one is.
+        line = Line(text="28. Which of the following", rect=self.rect(671, 680, x0=54), size=9.0)
+        part = self.rect(651, 667, x0=70)
+        column = [self.rect(629, 638, x0=70), part, line.rect]
+        blocked = frozenset({tuple(part)})
+        self.assertGreater(content_top(line, column, 0.0, blocked), 667)
+
+    def test_subpart_pattern(self):
+        for text in ("a. u . v", "h. (u x v) . w", "c) something"):
+            self.assertTrue(SUBPART_LABEL.match(text), text)
+        for text in ("i", "27. Which", "and so on"):
+            self.assertFalse(SUBPART_LABEL.match(text), text)
 
 
 class TestInstructionSpan(unittest.TestCase):
