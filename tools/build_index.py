@@ -111,6 +111,8 @@ NEIGHBOUR_CLEARANCE = 3
 MIN_CONTINUATION = 8
 # How near a problem must start to a detected margin for it to count as a column.
 COLUMN_HIT_TOLERANCE = 14
+# The widest gap across which a line is still taken to belong to the problem below it.
+MAX_ADOPT_GAP = 8
 # No exercise set runs longer than this; past it we are reading something else.
 MAX_WINDOW_PAGES = 12
 
@@ -531,6 +533,16 @@ def regions_for_page(
             else:
                 rows.append([(key, line)])
 
+        # Each problem's real top, which may sit above its own first line.
+        tops: dict[int, float] = {}
+        ordered_rows = [line for row in rows for _key, line in row]
+        for position, line in enumerate(
+            sorted(ordered_rows, key=lambda ln: (ln.rect[1], ln.rect[0]))
+        ):
+            earlier = sorted(ordered_rows, key=lambda ln: (ln.rect[1], ln.rect[0]))[:position]
+            limit = max((ln.rect[3] for ln in earlier), default=0.0)
+            tops[id(line)] = content_top(line, column_lines, limit)
+
         # Anything above the first problem here continues the one before it.
         run_on = continuation(scan, rows[0][0][1], column_lines, left, col_right)
         if previous and run_on:
@@ -538,7 +550,11 @@ def regions_for_page(
 
         for index, row in enumerate(rows):
             row.sort(key=lambda e: e[1].rect[0])
-            next_row_top = rows[index + 1][0][1].rect[1] if index + 1 < len(rows) else None
+            next_row_top = (
+                min(tops[id(line)] for _key, line in rows[index + 1])
+                if index + 1 < len(rows)
+                else None
+            )
             packed = len(row) > 1
 
             for position, (key, line) in enumerate(row):
@@ -550,7 +566,7 @@ def regions_for_page(
                     if packed
                     else content_bottom(line, cell_lines, next_row_top, scan.bottom_limit)
                 )
-                top = content_top(line, cell_lines)
+                top = tops[id(line)]
                 right = min(max((r[2] for r in cell_lines), default=line.rect[2]), cell_right)
                 out.append(
                     (
@@ -804,15 +820,37 @@ def scan_by_heading(
 PLAIN_NUMBER = re.compile(r"^\s*(\d{1,3})[a-z]?\s*[.)](?:\s|$)")
 
 
-def content_top(line: Line, column_lines: list[list[float]]) -> float:
+def content_top(line: Line, column_lines: list[list[float]], limit: float = 0.0) -> float:
     """Where a problem's box should start.
 
-    A radical sign or a tall fraction paints above the line box PyMuPDF reports, so the
-    box opens a little higher - but never so high that it eats into whatever sits above.
+    Maths does not sit neatly under the line that introduces it. A cross product prints
+    its determinant with the `i j k` row *above* the text that says "u x v =", and the
+    same goes for the top of a tall fraction or radical. Anything standing between two
+    problems is given to the one it sits closer to, which puts that row with the
+    determinant it belongs to instead of trailing the solution before it.
+
+    `limit` is the bottom of the previous problem's own first line: nothing above that
+    can belong here.
     """
-    above = [rect[3] for rect in column_lines if rect[3] <= line.rect[1] + 0.5]
-    room = line.rect[1] - max(above) if above else ASCENDER_MARGIN
-    return line.rect[1] - min(ASCENDER_MARGIN, max(0.0, room - NEIGHBOUR_CLEARANCE))
+    top = line.rect[1]
+    above = sorted(
+        (r for r in column_lines if r[3] <= top + 0.5 and r[1] >= limit),
+        key=lambda r: -r[3],
+    )
+    for index, rect in enumerate(above):
+        if rect[3] > top:
+            continue
+        gap_below = top - rect[3]
+        higher = [r[3] for r in above[index + 1 :] if r[3] <= rect[1] + 0.5]
+        gap_above = rect[1] - max(higher) if higher else float("inf")
+        if gap_below <= MAX_ADOPT_GAP and gap_below < gap_above:
+            top = min(top, rect[1])
+        else:
+            break
+
+    remaining = [r[3] for r in column_lines if r[3] <= top + 0.5]
+    room = top - max(remaining) if remaining else ASCENDER_MARGIN
+    return top - min(ASCENDER_MARGIN, max(0.0, room - NEIGHBOUR_CLEARANCE))
 
 
 def content_bottom(
