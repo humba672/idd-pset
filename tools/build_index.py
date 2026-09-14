@@ -82,6 +82,15 @@ INSTRUCTION_RANGE = re.compile(
 )
 
 
+def rejoin_hyphenated(first: str, second: str) -> str:
+    """Undo a line break in the middle of a word, or return something that will not
+    match if there was no hyphen to undo."""
+    head = first.rstrip()
+    if not head.endswith("-"):
+        return ""
+    return head[:-1] + second.lstrip()
+
+
 def instruction_span(text: str) -> tuple[int, int] | None:
     """The run of exercises an instruction introduces, or None.
 
@@ -669,6 +678,16 @@ def instruction_blocks(scan: "PageScan", margins: list[float]) -> list[tuple[int
         if (round(line.rect[0]), round(line.rect[1])) in hit_tops:
             continue  # a problem, not an instruction
         span = instruction_span(line.text)
+        if not span and index > 0:
+            # The book hyphenates across line breaks, and "Exercises" is no exception:
+            # "...joining the points in Exer-" / "cises 13-20. Draw coordinate axes...".
+            # Rejoin the two before giving up on the line.
+            earlier = ordered[index - 1]
+            if (
+                column_of(earlier.rect[0]) == column_of(line.rect[0])
+                and 0 <= line.rect[1] - earlier.rect[3] <= 6
+            ):
+                span = instruction_span(rejoin_hyphenated(earlier.text, line.text))
         if not span:
             continue
         low, high = span

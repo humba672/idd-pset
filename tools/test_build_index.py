@@ -15,6 +15,7 @@ from build_index import (
     SUBPART_LABEL,
     content_top,
     instruction_span,
+    rejoin_hyphenated,
     ScanReport,
     attribute_runs,
     build_index,
@@ -165,6 +166,17 @@ class TestInstructionSpan(unittest.TestCase):
     def test_a_list_is_not_a_range(self):
         # "1, 3, and 5" names three exercises, not everything from 1 to 3.
         self.assertIsNone(instruction_span("In Exercises 1, 3, and 5 do something"))
+
+    def test_reads_a_range_split_across_a_line_break(self):
+        # "...joining the points in Exer-" / "cises 13-20. Draw coordinate axes..."
+        joined = rejoin_hyphenated(
+            "Find parametrizations for the line segments joining the points in Exer-",
+            "cises 13-20. Draw coordinate axes and sketch each segment,",
+        )
+        self.assertEqual(instruction_span(joined), (13, 20))
+
+    def test_rejoin_needs_a_hyphen(self):
+        self.assertEqual(rejoin_hyphenated("no hyphen here", "cises 13-20"), "")
 
     def test_rejects_nonsense(self):
         self.assertIsNone(instruction_span("no range here"))
