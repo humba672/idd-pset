@@ -100,6 +100,13 @@ MAX_FORWARD_GAP = 10
 RESTART_CEILING = 3
 # ...but only once the section that is ending has run at least this far.
 MIN_SECTION_LENGTH = 8
+# Problem starts within this many points of each other are one row of a grid.
+ROW_TOLERANCE = 6
+# Inside such a row, a gap wider than this ends the problem.
+PACKED_LINE_GAP = 5
+# Points kept clear of the neighbouring problem, covering the breathing room the app
+# adds when it draws the region.
+NEIGHBOUR_CLEARANCE = 3
 # No exercise set runs longer than this; past it we are reading something else.
 MAX_WINDOW_PAGES = 12
 
@@ -166,8 +173,13 @@ def match_problem(
     return normalize_key(chapter_i, number_i, suffix=suffix)
 
 
-def flip_rect(rect: Sequence[float], page_height: float, pad: float = 2.0) -> list[float]:
-    """PyMuPDF top-left rect -> PDF user space [x0, y0, x1, y1] with origin bottom-left."""
+def flip_rect(rect: Sequence[float], page_height: float, pad: float = 0.0) -> list[float]:
+    """PyMuPDF top-left rect -> PDF user space [x0, y0, x1, y1] with origin bottom-left.
+
+    No padding by default: the box says exactly what it covers, and the app adds the
+    couple of points of breathing room it needs when it draws (D-7). Padding at both ends
+    used to stack up and spill the box into the problems either side of it.
+    """
     x0, y0, x1, y1 = (float(v) for v in rect)
     return [
         round(x0 - pad, 2),
@@ -365,25 +377,23 @@ def repair_pass(scans: list[PageScan]) -> int:
     return repaired
 
 
-def columns_from_hits(hits: list[Line], merge: float = 24.0) -> list[float]:
-    """Columns sit wherever problems actually start on this page."""
-    margins: list[float] = []
-    for x in sorted(ln.rect[0] for ln in hits):
-        if margins and x - margins[-1] <= merge:
-            continue
-        margins.append(x)
-    return margins
+def regions_for_page(scan: "PageScan", entries: list[tuple[str, Line]]) -> list[tuple[str, dict]]:
+    """Turn this page's problem starts into bboxes (D-3).
 
+    The unit is the page's column, not wherever a problem happens to begin. Inside a
+    column the book mixes two layouts: short problems set two across ("39. P(1, 2)" beside
+    "40. P(1, 3)"), and full-width ones that run the whole column. Treating every problem
+    start as its own column, which is what an earlier version did, cut the full-width ones
+    off at the width of the short ones.
 
-def regions_for_scan(
-    scan: PageScan, chapter: int | None, section: str | None
-) -> list[tuple[str, dict]]:
-    """Turn this page's problem starts into bboxes (D-3)."""
-    if not scan.hits:
+    So problems are grouped into rows by their vertical position. A row of one takes the
+    whole column; a row of several splits it, each problem reaching across to the next.
+    """
+    if not entries:
         return []
     page = scan.page
     height = page.rect.height
-    margins = columns_from_hits(list(scan.hits.values()))
+    margins = column_margins(scan.lines, page.rect.width)
 
     def column_of(x: float) -> int:
         best = 0
@@ -393,32 +403,80 @@ def regions_for_scan(
         return best
 
     out: list[tuple[str, dict]] = []
-    for number, line in sorted(scan.hits.items()):
-        col = column_of(line.rect[0])
-        left = margins[col]
-        right_bound = margins[col + 1] - 6 if col + 1 < len(margins) else page.rect.width
-        in_column = [
-            ln.rect
-            for ln in scan.lines
-            if margins[0] - 8 <= ln.rect[0] and left - 8 <= ln.rect[0] < right_bound
+
+    for col, left in enumerate(margins):
+        col_right = margins[col + 1] - 6 if col + 1 < len(margins) else page.rect.width
+        here = [(key, line) for key, line in entries if column_of(line.rect[0]) == col]
+        if not here:
+            continue
+        column_lines = [
+            ln.rect for ln in scan.lines if left - 8 <= ln.rect[0] < col_right
         ]
-        later = [
-            ln.rect[1]
-            for ln in scan.hits.values()
-            if column_of(ln.rect[0]) == col and ln.rect[1] > line.rect[1]
-        ]
-        bottom = content_bottom(line, in_column, min(later) if later else None, scan.bottom_limit)
-        top = content_top(line, in_column)
-        right = min(max((r[2] for r in in_column), default=line.rect[2]), right_bound)
-        key = (
-            normalize_key(chapter, section, number)
-            if section is not None
-            else normalize_key(chapter, number)
-        )
-        out.append(
-            (key, {"page": scan.index, "bbox": flip_rect([left, top, right, bottom], height)})
-        )
+
+        # Group into rows: problems whose first lines sit at the same height.
+        rows: list[list[tuple[str, Line]]] = []
+        for key, line in sorted(here, key=lambda e: (e[1].rect[1], e[1].rect[0])):
+            if rows and abs(line.rect[1] - rows[-1][0][1].rect[1]) <= ROW_TOLERANCE:
+                rows[-1].append((key, line))
+            else:
+                rows.append([(key, line)])
+
+        for index, row in enumerate(rows):
+            row.sort(key=lambda e: e[1].rect[0])
+            next_row_top = rows[index + 1][0][1].rect[1] if index + 1 < len(rows) else None
+            packed = len(row) > 1
+
+            for position, (key, line) in enumerate(row):
+                cell_left = left if position == 0 else line.rect[0]
+                cell_right = row[position + 1][1].rect[0] - 6 if position + 1 < len(row) else col_right
+                cell_lines = [r for r in column_lines if cell_left - 8 <= r[0] < cell_right]
+                bottom = (
+                    packed_bottom(line, cell_lines, next_row_top, scan.bottom_limit)
+                    if packed
+                    else content_bottom(line, cell_lines, next_row_top, scan.bottom_limit)
+                )
+                top = content_top(line, cell_lines)
+                right = min(max((r[2] for r in cell_lines), default=line.rect[2]), cell_right)
+                out.append(
+                    (
+                        key,
+                        {
+                            "page": scan.index,
+                            "bbox": flip_rect([cell_left, top, right, bottom], height),
+                        },
+                    )
+                )
     return out
+
+
+def packed_bottom(
+    line: Line, cell_lines: list[list[float]], next_top: float | None, floor: float
+) -> float:
+    """The bottom of a problem in a row of several.
+
+    These are one- or two-liners set in a grid, and the space under them often holds a
+    subheading belonging to what comes next, so the box follows the problem's own lines
+    only: it stops at the first real vertical gap.
+    """
+    ordered = sorted(
+        (
+            r
+            for r in cell_lines
+            if r[1] >= line.rect[1] - 1
+            and r[3] <= floor
+            and (next_top is None or r[1] < next_top - 1)
+        ),
+        key=lambda r: r[1],
+    )
+    bottom = line.rect[3]
+    for rect in ordered:
+        if rect[1] - bottom > PACKED_LINE_GAP:
+            break
+        bottom = max(bottom, rect[3])
+    bottom += CONTENT_MARGIN
+    if next_top is not None:
+        bottom = min(bottom, next_top - NEIGHBOUR_CLEARANCE)
+    return min(bottom, floor)
 
 
 def instruction_blocks(scan: "PageScan", margins: list[float]) -> list[tuple[int, int, dict]]:
@@ -469,15 +527,18 @@ def instruction_blocks(scan: "PageScan", margins: list[float]) -> list[tuple[int
             else:
                 break
 
-        # It runs down to the first problem underneath it.
+        # It runs down to just above the first problem's box, which opens
+        # ASCENDER_MARGIN higher than that problem's own first line.
         below = [
             ln.rect[1]
             for ln in scan.hits.values()
             if column_of(ln.rect[0]) == col and ln.rect[1] > line.rect[1]
         ]
-        # An instruction runs to just above the first problem's box, which opens
-        # ASCENDER_MARGIN higher than the problem's own first line.
-        bottom = min(below) - ASCENDER_MARGIN - 2 if below else line.rect[3] + CONTENT_MARGIN
+        bottom = (
+            min(below) - ASCENDER_MARGIN - NEIGHBOUR_CLEARANCE
+            if below
+            else line.rect[3] + CONTENT_MARGIN
+        )
 
         left = margins[col]
         right_bound = margins[col + 1] - 6 if col + 1 < len(margins) else page.rect.width
@@ -491,6 +552,7 @@ def instruction_blocks(scan: "PageScan", margins: list[float]) -> list[tuple[int
             (low, high, {"page": scan.index, "bbox": flip_rect([left, top, right, bottom], height)})
         )
     return out
+
 
 def scan_section(
     scans: list[PageScan],
@@ -514,11 +576,20 @@ def scan_section(
     for scan in scans:
         if scan.hits:
             shared.extend(
-                instruction_blocks(scan, columns_from_hits(list(scan.hits.values())))
+                instruction_blocks(scan, column_margins(scan.lines, scan.page.rect.width))
             )
 
     for scan in scans:
-        found = regions_for_scan(scan, chapter, section)
+        entries = [
+            (
+                normalize_key(chapter, section, number)
+                if section is not None
+                else normalize_key(chapter, number),
+                line,
+            )
+            for number, line in sorted(scan.hits.items())
+        ]
+        found = regions_for_page(scan, entries)
         if found:
             report.pages += 1
         record(regions, report, found)
@@ -622,7 +693,7 @@ def content_top(line: Line, column_lines: list[list[float]]) -> float:
     """
     above = [rect[3] for rect in column_lines if rect[3] <= line.rect[1] + 0.5]
     room = line.rect[1] - max(above) if above else ASCENDER_MARGIN
-    return line.rect[1] - min(ASCENDER_MARGIN, max(0.0, room - 1))
+    return line.rect[1] - min(ASCENDER_MARGIN, max(0.0, room - NEIGHBOUR_CLEARANCE))
 
 
 def content_bottom(
@@ -652,51 +723,8 @@ def content_bottom(
     ]
     bottom = (max(mine) if mine else line.rect[3]) + CONTENT_MARGIN
     if next_top is not None:
-        bottom = min(bottom, next_top - 1)
+        bottom = min(bottom, next_top - NEIGHBOUR_CLEARANCE)
     return min(bottom, floor)
-
-
-def build_regions(scan: "PageScan", entries: list[tuple[str, Line]]) -> list[tuple[str, dict]]:
-    """Turn this page's problem starts into bboxes (D-3).
-
-    A problem runs from its own first line down to the next problem start in the same
-    column, or to the last line of text in that column.
-    """
-    if not entries:
-        return []
-    page = scan.page
-    height = page.rect.height
-    margins = columns_from_hits([line for _key, line in entries])
-
-    def column_of(x: float) -> int:
-        best = 0
-        for i, m in enumerate(margins):
-            if x >= m - 8:
-                best = i
-        return best
-
-    out: list[tuple[str, dict]] = []
-    for key, line in entries:
-        col = column_of(line.rect[0])
-        left = margins[col]
-        right_bound = margins[col + 1] - 6 if col + 1 < len(margins) else page.rect.width
-        in_column = [
-            ln.rect
-            for ln in scan.lines
-            if margins[0] - 8 <= ln.rect[0] and left - 8 <= ln.rect[0] < right_bound
-        ]
-        later = [
-            other.rect[1]
-            for _k, other in entries
-            if column_of(other.rect[0]) == col and other.rect[1] > line.rect[1]
-        ]
-        bottom = content_bottom(line, in_column, min(later) if later else None, scan.bottom_limit)
-        top = content_top(line, in_column)
-        right = min(max((r[2] for r in in_column), default=line.rect[2]), right_bound)
-        out.append(
-            (key, {"page": scan.index, "bbox": flip_rect([left, top, right, bottom], height)})
-        )
-    return out
 
 
 @dataclass
@@ -874,7 +902,7 @@ def scan_by_flow(
         entries = accepted.get(scan.index, [])
         if entries:
             report.pages += 1
-        record(regions, report, build_regions(scan, entries))
+        record(regions, report, regions_for_page(scan, entries))
     return regions, report
 
 

@@ -103,6 +103,11 @@ class TestGeometry(unittest.TestCase):
     def test_padding_grows_the_box_on_every_side(self):
         self.assertEqual(flip_rect([72, 100, 300, 200], 792, pad=2), [70.0, 590.0, 302.0, 694.0])
 
+    def test_no_padding_by_default(self):
+        # The box means exactly what it covers; the app adds its own breathing room when
+        # it draws, and padding at both ends used to spill into the neighbouring problem.
+        self.assertEqual(flip_rect([72, 100, 300, 200], 792), [72.0, 592.0, 300.0, 692.0])
+
 
 class TestColumnMargins(unittest.TestCase):
     def line(self, x0, x1=500.0, y=100.0):
