@@ -149,6 +149,8 @@ MIN_CONTINUATION = 8
 COLUMN_HIT_TOLERANCE = 14
 # The widest gap across which a line is still taken to belong to the problem below it.
 MAX_ADOPT_GAP = 8
+# How far above its label a block of maths may start and still be part of it.
+STRADDLE_REACH = 24
 # No exercise set runs longer than this; past it we are reading something else.
 MAX_WINDOW_PAGES = 12
 
@@ -891,6 +893,18 @@ def content_top(
     problem above - "a.", "b." - which no amount of proximity can claim.
     """
     top = line.rect[1]
+
+    # Tall maths - a braced system, a stacked fraction - is set around the line that
+    # labels it, starting above and ending below. Such a block overlaps the label
+    # rather than sitting clear of it, so it never appears in the list below.
+    straddling = [
+        r[1]
+        for r in column_lines
+        if r[1] < top and r[3] > top + 0.5 and r[1] >= limit and top - r[1] <= STRADDLE_REACH
+    ]
+    if straddling:
+        top = min(straddling)
+
     above = sorted(
         (r for r in column_lines if r[3] <= top + 0.5 and r[1] >= limit),
         key=lambda r: -r[3],

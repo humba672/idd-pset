@@ -125,6 +125,13 @@ class TestContentTop(unittest.TestCase):
         column = [self.rect(100, 111), self.rect(127, 138, x0=117), line.rect]
         self.assertLess(content_top(line, column), 130)
 
+    def test_takes_in_maths_set_around_its_own_label(self):
+        # A braced system starts above the "27." that labels it and ends below.
+        line = Line(text="27.", rect=self.rect(106, 117, x0=64), size=10.0)
+        system = self.rect(99, 125, x0=92)
+        column = [self.rect(70, 84), system, line.rect]
+        self.assertLessEqual(content_top(line, column), 99)
+
     def test_leaves_a_labelled_part_with_the_problem_above(self):
         # "h. ..." belongs to the problem it is a part of, however close the next one is.
         line = Line(text="28. Which of the following", rect=self.rect(671, 680, x0=54), size=9.0)
