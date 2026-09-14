@@ -876,13 +876,17 @@ def content_top(
         (r for r in column_lines if r[3] <= top + 0.5 and r[1] >= limit),
         key=lambda r: -r[3],
     )
-    for index, rect in enumerate(above):
+    for rect in above:
         if rect[3] > top:
             continue
         if tuple(rect) in blocked:
             break
         gap_below = top - rect[3]
-        higher = [r[3] for r in above[index + 1 :] if r[3] <= rect[1] + 0.5]
+        # What sits above this line has to be measured against everything on the page,
+        # not just the lines still in play: `above` stops at the previous problem, so
+        # judging the gap from that shortened list makes it look infinite and every line
+        # ends up looking closer to the problem below.
+        higher = [r[3] for r in column_lines if r[3] <= rect[1] + 0.5]
         gap_above = rect[1] - max(higher) if higher else float("inf")
         if gap_below <= MAX_ADOPT_GAP and gap_below < gap_above:
             top = min(top, rect[1])

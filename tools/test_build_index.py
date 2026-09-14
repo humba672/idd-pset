@@ -132,6 +132,15 @@ class TestContentTop(unittest.TestCase):
         blocked = frozenset({tuple(part)})
         self.assertGreater(content_top(line, column, 0.0, blocked), 667)
 
+    def test_leaves_a_wrapped_line_with_the_problem_it_wraps_from(self):
+        # "30. Compute ... What can you conclude" / "about the associativity ..." - the
+        # second line belongs to 30, though it sits closer to 31 underneath it.
+        first = self.rect(252, 262, x0=330)
+        wrap = self.rect(264, 273, x0=346)
+        line = Line(text="31. Let u, v, and w", rect=self.rect(278, 287, x0=330), size=9.0)
+        column = [first, wrap, line.rect]
+        self.assertGreater(content_top(line, column, limit=first[3]), 273)
+
     def test_subpart_pattern(self):
         for text in ("a. u . v", "h. (u x v) . w", "c) something"):
             self.assertTrue(SUBPART_LABEL.match(text), text)
