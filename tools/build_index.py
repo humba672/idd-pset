@@ -109,6 +109,8 @@ PACKED_LINE_GAP = 5
 NEIGHBOUR_CLEARANCE = 3
 # A run-on shorter than this is stray artwork, not the rest of a problem.
 MIN_CONTINUATION = 8
+# How near a problem must start to a detected margin for it to count as a column.
+COLUMN_HIT_TOLERANCE = 14
 # No exercise set runs longer than this; past it we are reading something else.
 MAX_WINDOW_PAGES = 12
 
@@ -457,7 +459,16 @@ def regions_for_page(
         return [], [], carried
     page = scan.page
     height = page.rect.height
-    margins = column_margins(scan.lines, page.rect.width)
+
+    # A column only counts as one if problems actually start in it. Pages of dense maths
+    # have plenty of lines sharing a left edge - aligned equations, indented steps - and
+    # taking one of those for a column boundary cut every full-width solution in half.
+    detected = column_margins(scan.lines, page.rect.width)
+    margins = [
+        m
+        for m in detected
+        if any(abs(line.rect[0] - m) <= COLUMN_HIT_TOLERANCE for _key, line in entries)
+    ] or detected[:1]
 
     def column_of(x: float) -> int:
         best = 0
