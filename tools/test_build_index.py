@@ -15,7 +15,7 @@ from build_index import (
     SUBPART_LABEL,
     content_top,
     instruction_span,
-    rejoin_hyphenated,
+    join_wrapped,
     ScanReport,
     attribute_runs,
     build_index,
@@ -174,16 +174,24 @@ class TestInstructionSpan(unittest.TestCase):
         # "1, 3, and 5" names three exercises, not everything from 1 to 3.
         self.assertIsNone(instruction_span("In Exercises 1, 3, and 5 do something"))
 
-    def test_reads_a_range_split_across_a_line_break(self):
+    def test_reads_a_range_split_inside_a_word(self):
         # "...joining the points in Exer-" / "cises 13-20. Draw coordinate axes..."
-        joined = rejoin_hyphenated(
+        joined = join_wrapped(
             "Find parametrizations for the line segments joining the points in Exer-",
             "cises 13-20. Draw coordinate axes and sketch each segment,",
         )
         self.assertEqual(instruction_span(joined), (13, 20))
 
-    def test_rejoin_needs_a_hyphen(self):
-        self.assertEqual(rejoin_hyphenated("no hyphen here", "cises 13-20"), "")
+    def test_reads_a_range_split_after_the_word(self):
+        # "...the planes in Exercises" / "57-60 intersect."
+        joined = join_wrapped(
+            "Find parametrizations for the lines in which the planes in Exercises",
+            "57-60 intersect.",
+        )
+        self.assertEqual(instruction_span(joined), (57, 60))
+
+    def test_joining_does_not_run_words_together(self):
+        self.assertEqual(join_wrapped("planes in Exercises", "57-60"), "planes in Exercises 57-60")
 
     def test_rejects_nonsense(self):
         self.assertIsNone(instruction_span("no range here"))

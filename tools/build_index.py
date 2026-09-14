@@ -82,13 +82,17 @@ INSTRUCTION_RANGE = re.compile(
 )
 
 
-def rejoin_hyphenated(first: str, second: str) -> str:
-    """Undo a line break in the middle of a word, or return something that will not
-    match if there was no hyphen to undo."""
+def join_wrapped(first: str, second: str) -> str:
+    """Undo a line break, whether or not it fell inside a word.
+
+    An instruction wraps wherever the measure runs out: "...the points in Exer-" /
+    "cises 13-20", and "...the planes in Exercises" / "57-60 intersect." Both hide the
+    range from a pattern that only ever sees one line at a time.
+    """
     head = first.rstrip()
-    if not head.endswith("-"):
-        return ""
-    return head[:-1] + second.lstrip()
+    if head.endswith("-"):
+        return head[:-1] + second.lstrip()
+    return head + " " + second.lstrip()
 
 
 def instruction_span(text: str) -> tuple[int, int] | None:
@@ -506,7 +510,10 @@ def continuation(
 
 
 def regions_for_page(
-    scan: "PageScan", entries: list[tuple[str, Line]], carried: str | None = None
+    scan: "PageScan",
+    entries: list[tuple[str, Line]],
+    carried: str | None = None,
+    barriers: tuple[tuple[float, float, float], ...] = (),
 ) -> tuple[list[tuple[str, dict]], list[tuple[str, dict]], str | None]:
     """Turn this page's problem starts into bboxes (D-3).
 
@@ -518,6 +525,12 @@ def regions_for_page(
 
     So problems are grouped into rows by their vertical position. A row of one takes the
     whole column; a row of several splits it, each problem reaching across to the next.
+
+    `barriers` are the shared instructions on this page, each as (top, left, right). A
+    problem stops above the instruction that introduces the problems after it - that
+    paragraph is theirs, not a continuation of this one. Each carries where it starts,
+    because a page has two columns and an instruction in one says nothing about where a
+    problem in the other ends.
 
     A problem also runs on past the foot of a column: its parts (a) and (b) can sit at the
     top of the next one. Whatever stands above the first problem of a column therefore
@@ -598,14 +611,28 @@ def regions_for_page(
             )
             packed = len(row) > 1
 
+            barrier = min(
+                (
+                    top
+                    for top, bar_left, _bar_right in barriers
+                    if top > row[0][1].rect[1] and column_of(bar_left) == col
+                ),
+                default=None,
+            )
+            floor = (
+                next_row_top
+                if next_row_top is not None and (barrier is None or next_row_top < barrier)
+                else barrier
+            )
+
             for position, (key, line) in enumerate(row):
                 cell_left = left if position == 0 else line.rect[0]
                 cell_right = row[position + 1][1].rect[0] - 6 if position + 1 < len(row) else col_right
                 cell_lines = [r for r in column_lines if cell_left - 8 <= r[0] < cell_right]
                 bottom = (
-                    packed_bottom(line, cell_lines, next_row_top, scan.bottom_limit)
+                    packed_bottom(line, cell_lines, floor, scan.bottom_limit)
                     if packed
-                    else content_bottom(line, cell_lines, next_row_top, scan.bottom_limit)
+                    else content_bottom(line, cell_lines, floor, scan.bottom_limit)
                 )
                 top = tops[id(line)]
                 right = min(max((r[2] for r in cell_lines), default=line.rect[2]), cell_right)
@@ -652,7 +679,9 @@ def packed_bottom(
     return min(bottom, floor)
 
 
-def instruction_blocks(scan: "PageScan", margins: list[float]) -> list[tuple[int, int, dict]]:
+def instruction_blocks(
+    scan: "PageScan", margins: list[float]
+) -> list[tuple[int, int, dict, float]]:
     """Find the shared instructions that govern a group of exercises.
 
     Thomas states the actual question once, above a run of problems ("Find the angles
@@ -661,7 +690,7 @@ def instruction_blocks(scan: "PageScan", margins: list[float]) -> list[tuple[int
     question at all, so each instruction is captured as its own region and attached to
     every problem in its range (D-3 allows a problem to have several regions).
     """
-    out: list[tuple[int, int, dict]] = []
+    out: list[tuple[int, int, dict, float]] = []
     if not scan.lines:
         return out
     page = scan.page
@@ -689,7 +718,7 @@ def instruction_blocks(scan: "PageScan", margins: list[float]) -> list[tuple[int
                 column_of(earlier.rect[0]) == column_of(line.rect[0])
                 and 0 <= line.rect[1] - earlier.rect[3] <= 6
             ):
-                span = instruction_span(rejoin_hyphenated(earlier.text, line.text))
+                span = instruction_span(join_wrapped(earlier.text, line.text))
         if not span:
             continue
         low, high = span
@@ -735,7 +764,12 @@ def instruction_blocks(scan: "PageScan", margins: list[float]) -> list[tuple[int
         if bottom <= top:
             continue
         out.append(
-            (low, high, {"page": scan.index, "bbox": flip_rect([left, top, right, bottom], height)})
+            (
+                low,
+                high,
+                {"page": scan.index, "bbox": flip_rect([left, top, right, bottom], height)},
+                top,
+            )
         )
     return out
 
@@ -758,12 +792,20 @@ def scan_section(
 
     # Collect the shared instructions once per section, then hand each problem the one
     # that governs it.
-    shared: list[tuple[int, int, dict]] = []
+    shared: list[tuple[int, int, dict, float]] = []
     for scan in scans:
         if scan.hits:
             shared.extend(
                 instruction_blocks(scan, column_margins(scan.lines, scan.page.rect.width))
             )
+    # Deduplicate: an instruction that wraps can be recognised from either of its lines.
+    shared = list({(low, high, top): (low, high, region, top) for low, high, region, top in shared}.values())
+
+    barriers_by_page: dict[int, tuple[tuple[float, float, float], ...]] = {}
+    for _low, _high, region, top in shared:
+        bbox = region["bbox"]
+        barriers_by_page.setdefault(region["page"], ())
+        barriers_by_page[region["page"]] += ((top, bbox[0], bbox[2]),)
 
     carried: str | None = None
     for scan in scans:
@@ -776,7 +818,9 @@ def scan_section(
             )
             for number, line in sorted(scan.hits.items())
         ]
-        found, run_ons, carried = regions_for_page(scan, entries, carried)
+        found, run_ons, carried = regions_for_page(
+            scan, entries, carried, barriers_by_page.get(scan.index, ())
+        )
         if found:
             report.pages += 1
         record(regions, report, found)
