@@ -107,6 +107,8 @@ PACKED_LINE_GAP = 5
 # Points kept clear of the neighbouring problem, covering the breathing room the app
 # adds when it draws the region.
 NEIGHBOUR_CLEARANCE = 3
+# A run-on shorter than this is stray artwork, not the rest of a problem.
+MIN_CONTINUATION = 8
 # No exercise set runs longer than this; past it we are reading something else.
 MAX_WINDOW_PAGES = 12
 
@@ -229,13 +231,15 @@ class ScanReport:
     repaired: int = 0
     dropped: int = 0
     instructions: int = 0
+    continuations: int = 0
 
     def note(self) -> str:
         return (
             f"{self.hits} problem starts over {self.pages} pages, "
             f"{len(self.keys)} distinct keys in {len(self.sections)} sections "
             f"({self.repaired} recovered by repair, {self.instructions} given a shared "
-            f"instruction, {self.dropped} stray numbers dropped, "
+            f"instruction, {self.continuations} continued across a column, "
+            f"{self.dropped} stray numbers dropped, "
             f"{len(self.duplicates)} duplicates)"
         )
 
@@ -284,6 +288,18 @@ def parse_page_range(spec: str | None, total: int) -> range:
 #      number is a specific thing to hunt for: if exactly one line in the section begins
 #      with it, that is the problem, wherever it sits. This recovers second columns that
 #      are not split down the middle of the page.
+
+
+def attach(
+    regions: dict[str, list[dict]], report: "ScanReport", extra: list[tuple[str, dict]]
+) -> None:
+    """Add a region to a problem already recorded - the rest of it, carried over from the
+    previous column. Deliberately not counted as another sighting of the key: it is one
+    problem in two pieces (D-3), not the same problem found twice."""
+    for key, region in extra:
+        if key in regions:
+            regions[key].append(region)
+            report.continuations += 1
 
 
 def record(
@@ -377,7 +393,50 @@ def repair_pass(scans: list[PageScan]) -> int:
     return repaired
 
 
-def regions_for_page(scan: "PageScan", entries: list[tuple[str, Line]]) -> list[tuple[str, dict]]:
+def continuation(
+    scan: "PageScan",
+    first: Line,
+    column_lines: list[list[float]],
+    left: float,
+    right_bound: float,
+) -> dict | None:
+    """The run-on from the previous column, if this one opens with any.
+
+    Stops short of a shared instruction: that introduces the problems below it and is
+    captured separately, so it is not part of what came before.
+    """
+    ceiling = first.rect[1] - NEIGHBOUR_CLEARANCE
+    lead = [rect for rect in column_lines if rect[3] <= ceiling]
+    if not lead:
+        return None
+    instruction_tops = [
+        ln.rect[1]
+        for ln in scan.lines
+        if left - 8 <= ln.rect[0] < right_bound
+        and ln.rect[3] <= ceiling
+        and INSTRUCTION_RANGE.search(ln.text)
+    ]
+    if instruction_tops:
+        cut = min(instruction_tops) - NEIGHBOUR_CLEARANCE
+        lead = [rect for rect in lead if rect[3] <= cut]
+        if not lead:
+            return None
+    top = min(rect[1] for rect in lead)
+    bottom = max(rect[3] for rect in lead)
+    if bottom - top < MIN_CONTINUATION:
+        return None
+    right = min(max(rect[2] for rect in lead), right_bound)
+    # Keep clear of the problem this column opens with.
+    bottom = min(bottom + CONTENT_MARGIN, ceiling)
+    return {
+        "page": scan.index,
+        "bbox": flip_rect([left, top, right, bottom], scan.page.rect.height),
+    }
+
+
+def regions_for_page(
+    scan: "PageScan", entries: list[tuple[str, Line]], carried: str | None = None
+) -> tuple[list[tuple[str, dict]], list[tuple[str, dict]], str | None]:
     """Turn this page's problem starts into bboxes (D-3).
 
     The unit is the page's column, not wherever a problem happens to begin. Inside a
@@ -388,9 +447,14 @@ def regions_for_page(scan: "PageScan", entries: list[tuple[str, Line]]) -> list[
 
     So problems are grouped into rows by their vertical position. A row of one takes the
     whole column; a row of several splits it, each problem reaching across to the next.
+
+    A problem also runs on past the foot of a column: its parts (a) and (b) can sit at the
+    top of the next one. Whatever stands above the first problem of a column therefore
+    belongs to the problem before it, and is attached as a second region (D-3). `carried`
+    is the last problem of the previous page, for a run-on across the page break.
     """
     if not entries:
-        return []
+        return [], [], carried
     page = scan.page
     height = page.rect.height
     margins = column_margins(scan.lines, page.rect.width)
@@ -403,6 +467,8 @@ def regions_for_page(scan: "PageScan", entries: list[tuple[str, Line]]) -> list[
         return best
 
     out: list[tuple[str, dict]] = []
+    run_ons: list[tuple[str, dict]] = []
+    previous = carried
 
     for col, left in enumerate(margins):
         col_right = margins[col + 1] - 6 if col + 1 < len(margins) else page.rect.width
@@ -420,6 +486,11 @@ def regions_for_page(scan: "PageScan", entries: list[tuple[str, Line]]) -> list[
                 rows[-1].append((key, line))
             else:
                 rows.append([(key, line)])
+
+        # Anything above the first problem here continues the one before it.
+        run_on = continuation(scan, rows[0][0][1], column_lines, left, col_right)
+        if previous and run_on:
+            run_ons.append((previous, run_on))
 
         for index, row in enumerate(rows):
             row.sort(key=lambda e: e[1].rect[0])
@@ -446,7 +517,8 @@ def regions_for_page(scan: "PageScan", entries: list[tuple[str, Line]]) -> list[
                         },
                     )
                 )
-    return out
+        previous = rows[-1][-1][0]
+    return out, run_ons, previous
 
 
 def packed_bottom(
@@ -579,6 +651,7 @@ def scan_section(
                 instruction_blocks(scan, column_margins(scan.lines, scan.page.rect.width))
             )
 
+    carried: str | None = None
     for scan in scans:
         entries = [
             (
@@ -589,10 +662,11 @@ def scan_section(
             )
             for number, line in sorted(scan.hits.items())
         ]
-        found = regions_for_page(scan, entries)
+        found, run_ons, carried = regions_for_page(scan, entries, carried)
         if found:
             report.pages += 1
         record(regions, report, found)
+        attach(regions, report, run_ons)
 
         # Slip each problem's shared instruction in ahead of the problem itself, without
         # counting it as another sighting of the key.
@@ -898,11 +972,14 @@ def scan_by_flow(
         key = normalize_key(chapter_number, section_number, cand.number)
         accepted.setdefault(cand.scan.index, []).append((key, cand.line))
 
+    carried: str | None = None
     for scan in scans:
         entries = accepted.get(scan.index, [])
         if entries:
             report.pages += 1
-        record(regions, report, regions_for_page(scan, entries))
+        found, run_ons, carried = regions_for_page(scan, entries, carried)
+        record(regions, report, found)
+        attach(regions, report, run_ons)
     return regions, report
 
 
