@@ -165,7 +165,8 @@ function solutionPanel(
   return panel
 }
 
-function problemPane(
+/** Also used by the study view (P-8), which works one problem at a time. */
+export function problemPane(
   assignment: Assignment,
   key: string,
   problem: ResolvedProblem,
@@ -213,9 +214,13 @@ function problemPane(
     pane.append(box, extractedTextToggle('textbook', problem.text, settings))
     void renderInto(box, 'textbook', problem.text, settings.zoom)
 
-    if (problem.textSource === 'override') {
-      // A box drawn by hand is easy to get wrong; D-8 is no use if it cannot be redrawn.
-      const remark = el('button', { text: 'Re-mark region' })
+    {
+      // Any region can be wrong, not just a hand-drawn one: the index is built by a
+      // script against a book full of stacked fractions and figures (D-4), and a box it
+      // places badly is only fixable from here. The override exports for merging (D-8).
+      const remark = el('button', {
+        text: problem.textSource === 'override' ? 'Re-mark region' : 'Fix this region',
+      })
       const holder = el('div', { class: 'actions' }, remark)
       remark.addEventListener('click', () => {
         holder.remove()

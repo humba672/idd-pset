@@ -1,4 +1,4 @@
-// D-12: exactly four views. This is the shell and the hash router that picks between them.
+// D-12, amended by P-8: five views. This is the shell and the hash router between them.
 
 import './styles.css'
 import { clear, el, toast } from './views/dom'
@@ -6,17 +6,20 @@ import { renderAssignments } from './views/assignments'
 import { renderWorkspace } from './views/workspace'
 import { renderReview } from './views/review'
 import { renderSettings } from './views/settings'
+import { renderStudy } from './views/study'
 import { getPdfMeta } from './pdf/store'
 
 type Route =
   | { view: 'assignments' }
   | { view: 'workspace'; id: string }
   | { view: 'review'; id: string }
+  | { view: 'study' }
   | { view: 'settings' }
 
 function parseRoute(hash: string): Route {
   const parts = hash.replace(/^#\/?/, '').split('/').filter(Boolean)
   if (parts[0] === 'settings') return { view: 'settings' }
+  if (parts[0] === 'study') return { view: 'study' }
   if (parts[0] === 'a' && parts[1]) {
     return parts[2] === 'review'
       ? { view: 'review', id: parts[1] }
@@ -30,6 +33,7 @@ function renderNav(route: Route): void {
   if (!nav) return
   const links: [string, string, boolean][] = [
     ['#/assignments', 'Assignments', route.view === 'assignments'],
+    ['#/study', 'Study', route.view === 'study'],
     ['#/settings', 'Settings', route.view === 'settings'],
   ]
   clear(nav)
@@ -79,6 +83,9 @@ async function render(): Promise<void> {
         break
       case 'review':
         await renderReview(root, route.id)
+        break
+      case 'study':
+        await renderStudy(root)
         break
       case 'settings':
         await renderSettings(root)

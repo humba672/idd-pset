@@ -186,3 +186,24 @@ Decision changes are appended here with date and reason. D-numbers are never reu
   - P-7 (extends D-6) The page offsets measured from these PDFs, -13 and -5, are the
     built-in defaults rather than zeros, so a fresh browser is usable without visiting
     Settings first. Settings still overrides them, as D-6 requires.
+
+- 2026-09-16 Rajiv asked for practice on problems no course has set. Both entries are
+  **proposals**:
+
+  - P-8 (amends D-12) **A fifth view: Study.** Pick a chapter; the app draws a problem at
+    random from those it can show with a worked solution and that no assignment has ever
+    named. Work it, reveal, mark it - the loop of Section 1, with the app choosing instead
+    of a course. It grades nothing, so Non-goal 1 stands.
+
+    A drawn problem is appended to a per-chapter assignment titled "Study - chapter N".
+    That is what makes "nothing already set" true: drawn is drawn, so it leaves the pool
+    whether or not it gets worked. It also means attempts, review, export and import
+    (D-9, D-10) apply to study exactly as they do to a course assignment, with no second
+    kind of record to keep.
+
+  - P-9 (extends D-8) **Any region can be re-marked, not only a missing one.** D-8 gives
+    the user a way to place a region the index lacks; nothing let them correct one the
+    index places badly. On pages of stacked fractions the script still does place boxes
+    badly, and drawing problems at random surfaces those pages quickly, so the workspace
+    now offers "Fix this region" for every problem. The correction is stored and exported
+    as an ordinary D-8 override.

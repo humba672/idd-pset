@@ -29,11 +29,17 @@ no server to upload them to (C1, C2, D-2).
    Verdicts (correct / partial / incorrect) are yours to set — nothing is auto-graded.
    Answers are not recorded, by ruling; there is one optional note field per problem.
 3. **Review** — the whole assignment with solutions open and statuses editable. Prints.
-4. **Settings** — PDFs, page offsets, export/import, override export.
+4. **Study** — pick a chapter and draw a problem at random from those with a worked
+   solution that no assignment has ever set (P-8). Each draw is recorded under
+   "Study — chapter N", so nothing comes round twice and the attempts export like any
+   other.
+5. **Settings** — PDFs, page offsets, export/import, override export.
 
 A key marked `*` in the problem list is not in `index.json`: the workspace shows the page
 with a stepper, you drag a box around the problem, and the region is saved as a local
-override you can export and merge (D-8).
+override you can export and merge (D-8). Any problem, indexed or not, has a **Fix this
+region** control for the same purpose — the scan still places some boxes badly on pages
+of stacked fractions (P-9).
 
 ## Building the index
 
