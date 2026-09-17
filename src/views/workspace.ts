@@ -15,6 +15,7 @@ import {
 import { resolveAll, resolveProblem, saveOverride, type ResolvedProblem } from '../index/load'
 import { extractText, renderRegions, type Region } from '../pdf/render'
 import type { PdfSlot } from '../pdf/store'
+import { pageView } from './page-view'
 import { regionPicker } from './region-picker'
 import { clear, el, toast } from './dom'
 
@@ -127,7 +128,20 @@ function solutionPanel(
     const remark = el('button', {
       text: problem.solutionSource === 'override' ? 'Re-mark solution' : 'Fix this solution',
     })
-    const holder = el('div', { class: 'actions' }, remark)
+    const wholePage = el('button', { text: 'Show this page' })
+    const holder = el('div', { class: 'actions' }, wholePage, remark)
+
+    wholePage.addEventListener('click', () => {
+      holder.remove()
+      box.replaceWith(
+        pageView({
+          slot: 'solutions',
+          page: problem.solution[0]?.page ?? 0,
+          settings,
+          onClose: onChange,
+        }),
+      )
+    })
     remark.addEventListener('click', () => {
       holder.remove()
       box.replaceWith(
@@ -245,7 +259,21 @@ export function problemPane(
       const remark = el('button', {
         text: problem.textSource === 'override' ? 'Re-mark region' : 'Fix this region',
       })
-      const holder = el('div', { class: 'actions' }, remark)
+      const wholePage = el('button', { text: 'Show this page' })
+      const holder = el('div', { class: 'actions' }, wholePage, remark)
+
+      // P-10: the page it came from, for when the region cut something off or the
+      // problem leans on what sits beside it.
+      wholePage.addEventListener('click', () => {
+        holder.remove()
+        const viewer = pageView({
+          slot: 'textbook',
+          page: problem.text[0]?.page ?? 0,
+          settings,
+          onClose: onChange,
+        })
+        box.replaceWith(viewer)
+      })
       remark.addEventListener('click', () => {
         holder.remove()
         box.replaceWith(

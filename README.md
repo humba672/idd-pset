@@ -40,7 +40,9 @@ A key marked `*` in the problem list is not in `index.json`: the workspace shows
 with a stepper, you drag a box around the problem, and the region is saved as a local
 override you can export and merge (D-8). Any problem has a **Fix this region** control
 and any solution a **Fix this solution** control for the same purpose — the scan still
-places some boxes badly on pages of stacked fractions (P-9).
+places some boxes badly on pages of stacked fractions (P-9). **Show this page** opens the
+whole page either came from, with a stepper, for when you want the context or want to see
+what a region cut off (P-10).
 
 ## Building the index
 

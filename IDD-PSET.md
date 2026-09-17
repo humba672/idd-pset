@@ -210,3 +210,10 @@ Decision changes are appended here with date and reason. D-numbers are never reu
     problem and "Fix this solution" for every solution. The solution matters more, being
     the half there is nothing else to check against. Both store and export as ordinary
     D-8 overrides.
+
+  - P-10 (extends D-7) **"Show this page".** D-7 shows a problem as its own region and
+    nothing else, which is right nearly always and wrong exactly when the region is
+    placed badly, or when the problem leans on a figure or a worked example beside it.
+    Both the problem and the solution now offer the page they came from, with a stepper
+    either side of it and the printed page number (D-6), and a way back to the region.
+    It reads only: correcting a region is still "Fix this region" (P-9).
