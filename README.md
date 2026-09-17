@@ -29,10 +29,11 @@ no server to upload them to (C1, C2, D-2).
    Verdicts (correct / partial / incorrect) are yours to set — nothing is auto-graded.
    Answers are not recorded, by ruling; there is one optional note field per problem.
 3. **Review** — the whole assignment with solutions open and statuses editable. Prints.
-4. **Study** — pick a chapter and draw a problem at random from those with a worked
-   solution that no assignment has ever set (P-8). Each draw is recorded under
-   "Study — chapter N", so nothing comes round twice and the attempts export like any
-   other.
+4. **Study** — pick a chapter and how many problems you want from each of its sections;
+   the app draws them at random from those with a worked solution that no assignment has
+   ever set (P-8). The set is saved as "Study — chapter N #k" and opens in the workspace,
+   so nothing comes round twice and it works, reviews and exports like any other
+   assignment.
 5. **Settings** — PDFs, page offsets, export/import, override export.
 
 A key marked `*` in the problem list is not in `index.json`: the workspace shows the page

@@ -190,16 +190,17 @@ Decision changes are appended here with date and reason. D-numbers are never reu
 - 2026-09-16 Rajiv asked for practice on problems no course has set. Both entries are
   **proposals**:
 
-  - P-8 (amends D-12) **A fifth view: Study.** Pick a chapter; the app draws a problem at
-    random from those it can show with a worked solution and that no assignment has ever
-    named. Work it, reveal, mark it - the loop of Section 1, with the app choosing instead
-    of a course. It grades nothing, so Non-goal 1 stands.
+  - P-8 (amends D-12) **A fifth view: Study.** Pick a chapter and a number; the app draws
+    that many problems at random from *each section* of it, out of those it can show with
+    a worked solution and that no assignment has ever named. A section holding fewer than
+    asked gives what it has, since the point is cover across the chapter rather than an
+    exact count. It grades nothing, so Non-goal 1 stands.
 
-    A drawn problem is appended to a per-chapter assignment titled "Study - chapter N".
-    That is what makes "nothing already set" true: drawn is drawn, so it leaves the pool
-    whether or not it gets worked. It also means attempts, review, export and import
-    (D-9, D-10) apply to study exactly as they do to a course assignment, with no second
-    kind of record to keep.
+    The set is saved as an assignment, "Study - chapter N #k", and opened in the
+    workspace. That is what makes "nothing already set" true - a drawn problem now
+    belongs to an assignment, so it leaves the pool - and it means working, marking,
+    review, export and import (D-9, D-10, D-12) apply to a study set exactly as they do
+    to one the course gave, with no second kind of record to keep.
 
   - P-9 (extends D-8) **Any region can be re-marked, not only a missing one.** D-8 gives
     the user a way to place a region the index lacks; nothing let them correct one the
