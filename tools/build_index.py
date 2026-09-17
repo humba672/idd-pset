@@ -153,6 +153,8 @@ MIN_CONTINUATION = 8
 COLUMN_HIT_TOLERANCE = 14
 # How many problems must start there before it counts as a column of its own.
 COLUMN_MIN_PROBLEMS = 2
+# Everything below this fraction of the page is the footer, not the solution above it.
+FOOT_FRACTION = 0.88
 # How many pages ahead to look for the section a restart belongs to.
 SECTION_LOOKAHEAD = 2
 # The widest gap across which a line is still taken to belong to the problem below it.
@@ -505,7 +507,7 @@ def repair_pass(scans: list[PageScan]) -> int:
 
 def continuation(
     scan: "PageScan",
-    first: Line,
+    first_top: float,
     column_lines: list[list[float]],
     left: float,
     right_bound: float,
@@ -515,7 +517,10 @@ def continuation(
     Stops short of a shared instruction: that introduces the problems below it and is
     captured separately, so it is not part of what came before.
     """
-    ceiling = first.rect[1] - NEIGHBOUR_CLEARANCE
+    # `first_top` is where the first problem's box begins, which for a cross product is
+    # the "i j k" row above its own line. Reading the run-on up to the problem's line
+    # instead would hand that row to the problem on the previous page.
+    ceiling = first_top - NEIGHBOUR_CLEARANCE
     lead = [rect for rect in column_lines if rect[3] <= ceiling]
     if not lead:
         return None
@@ -648,7 +653,13 @@ def regions_for_page(
             tops[id(line)] = content_top(line, column_lines, limit, blocked)
 
         # Anything above the first problem here continues the one before it.
-        run_on = continuation(scan, rows[0][0][1], column_lines, left, col_right)
+        run_on = continuation(
+            scan,
+            min(tops[id(line)] for _key, line in rows[0]),
+            column_lines,
+            left,
+            col_right,
+        )
         if previous and run_on:
             run_ons.append((previous, run_on))
 
@@ -794,7 +805,9 @@ def instruction_blocks(
 
         # It runs to the bottom of its own last line. Measuring back from the problem
         # underneath instead would slice that line in half wherever the two sit close
-        # together, which in a tight setting is most of the time.
+        # together, which in a tight setting is most of the time. The clearance below is
+        # the same one problems keep, since the app adds a little padding of its own when
+        # it draws and without the allowance the box spills onto the first problem.
         below = [
             ln.rect[1]
             for ln in scan.hits.values()
@@ -807,7 +820,10 @@ def instruction_blocks(
                 for r in (ln.rect for ln in scan.lines)
                 if column_of(r[0]) == col and top - 1 <= r[1] < first_problem
             ]
-            bottom = min((max(own) if own else line.rect[3]) + 1, first_problem - 1)
+            bottom = min(
+                (max(own) if own else line.rect[3]) + 1,
+                first_problem - NEIGHBOUR_CLEARANCE,
+            )
         else:
             bottom = line.rect[3] + CONTENT_MARGIN
 
@@ -1206,6 +1222,7 @@ def scan_by_flow(
     pages: range,
     margin_tol: float,
     head_frac: float = 0.1,
+    foot_frac: float = FOOT_FRACTION,
     lookahead: int = 3,
 ) -> tuple[dict[str, list[dict]], "ScanReport"]:
     """Read the manual as one continuous run of numbered solutions.
@@ -1241,13 +1258,14 @@ def scan_by_flow(
             c = CHAPTER_HEADING.search(ln.text)
             if c:
                 chapter = int(c.group(1))
-        body = [ln for ln in lines if ln.rect[1] >= head_limit]
+        # Trim the running head and the copyright line at the foot: neither belongs to
+        # the solution above it, and the last solution on a page would otherwise run all
+        # the way down to the footer.
+        foot_limit = page.rect.height * foot_frac
+        body = [ln for ln in lines if head_limit <= ln.rect[1] < foot_limit]
         if body:
-            head_limit = page.rect.height * head_frac
-            shapes = [sh for sh in page_shapes(page) if sh[1] >= head_limit]
-            scans.append(
-                PageScan(page_index, page, body, page.rect.height - 36, shapes=shapes)
-            )
+            shapes = [sh for sh in page_shapes(page) if head_limit <= sh[1] < foot_limit]
+            scans.append(PageScan(page_index, page, body, foot_limit, shapes=shapes))
 
     if not sequence:
         report.unsectioned_pages = len(scans)
