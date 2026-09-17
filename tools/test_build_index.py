@@ -284,6 +284,27 @@ class TestAttributeRuns(unittest.TestCase):
         self.assertEqual(report.dropped, 1)
         self.assertEqual([n for _s, n in placed], list(range(1, 15)) + [15, 16, 17])
 
+    def test_a_number_inside_the_working_is_dropped(self):
+        # "|F| = 100." in the middle of solution 45 reads as problem 100. It leaps far
+        # past where the section has got to and nothing after it continues from there.
+        runs = build_runs(
+            [candidate(n, 8) for n in (43, 44, 45)]
+            + [candidate(100, 8)]
+            + [candidate(n, 8) for n in (46, 47)]
+        )
+        placed, report = self.attribute(runs, {8: (12, "2")}, [(12, "2")])
+        self.assertEqual([n for _s, n in placed], [43, 44, 45, 46, 47])
+        self.assertEqual(report.dropped, 1)
+
+    def test_a_genuine_jump_forward_is_kept(self):
+        # Solutions do skip numbers; a run that carries on from where it lands is real.
+        runs = build_runs(
+            [candidate(n, 8) for n in (10, 11)] + [candidate(n, 8) for n in (40, 41, 42)]
+        )
+        placed, report = self.attribute(runs, {8: (12, "2")}, [(12, "2")])
+        self.assertEqual([n for _s, n in placed], [10, 11, 40, 41, 42])
+        self.assertEqual(report.dropped, 0)
+
     def test_chapter_review_exercises_are_dropped_not_mis_filed(self):
         # "Chapter 1 Practice Exercises" names no section, and sits past the last page
         # that claimed one. Filing it under the previous section would be a lie.

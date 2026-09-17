@@ -121,7 +121,31 @@ function solutionPanel(
     const box = el('div', { class: 'render-box' })
     panel.append(box, extractedTextToggle('solutions', problem.solution, settings))
     void renderInto(box, 'solutions', problem.solution, settings.zoom)
+
+    // A solution region can be wrong in the same ways a problem's can (P-9), and it is
+    // the half you cannot check against anything else, so it needs the same escape.
+    const remark = el('button', {
+      text: problem.solutionSource === 'override' ? 'Re-mark solution' : 'Fix this solution',
+    })
+    const holder = el('div', { class: 'actions' }, remark)
+    remark.addEventListener('click', () => {
+      holder.remove()
+      box.replaceWith(
+        regionPicker({
+          slot: 'solutions',
+          initialPage: problem.solution[0]?.page ?? 0,
+          settings,
+          label: `Mark the manual's solution to ${problem.key}`,
+          onSave: async (regions) => {
+            await saveOverride(problem.key, 'solution', regions)
+            toast(`Solution region updated for ${problem.key}.`)
+            onChange()
+          },
+        }),
+      )
+    })
     panel.append(
+      holder,
       el('p', {
         class: 'muted',
         text: 'Compare, then mark the attempt yourself - the app does not grade (Section 2).',

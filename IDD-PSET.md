@@ -202,9 +202,11 @@ Decision changes are appended here with date and reason. D-numbers are never reu
     review, export and import (D-9, D-10, D-12) apply to a study set exactly as they do
     to one the course gave, with no second kind of record to keep.
 
-  - P-9 (extends D-8) **Any region can be re-marked, not only a missing one.** D-8 gives
-    the user a way to place a region the index lacks; nothing let them correct one the
-    index places badly. On pages of stacked fractions the script still does place boxes
-    badly, and drawing problems at random surfaces those pages quickly, so the workspace
-    now offers "Fix this region" for every problem. The correction is stored and exported
-    as an ordinary D-8 override.
+  - P-9 (extends D-8) **Any region can be re-marked, not only a missing one - a
+    solution's as much as a problem's.** D-8 gives the user a way to place a region the
+    index lacks; nothing let them correct one the index places badly. On pages of stacked
+    fractions the script still does place boxes badly, and drawing problems at random
+    surfaces those pages quickly, so the workspace now offers "Fix this region" for every
+    problem and "Fix this solution" for every solution. The solution matters more, being
+    the half there is nothing else to check against. Both store and export as ordinary
+    D-8 overrides.

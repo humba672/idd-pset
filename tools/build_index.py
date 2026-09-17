@@ -151,6 +151,8 @@ NEIGHBOUR_CLEARANCE = 3
 MIN_CONTINUATION = 8
 # How near a problem must start to a detected margin for it to count as a column.
 COLUMN_HIT_TOLERANCE = 14
+# How many problems must start there before it counts as a column of its own.
+COLUMN_MIN_PROBLEMS = 2
 # How many pages ahead to look for the section a restart belongs to.
 SECTION_LOOKAHEAD = 2
 # The widest gap across which a line is still taken to belong to the problem below it.
@@ -575,14 +577,16 @@ def regions_for_page(
     page = scan.page
     height = page.rect.height
 
-    # A column only counts as one if problems actually start in it. Pages of dense maths
-    # have plenty of lines sharing a left edge - aligned equations, indented steps - and
-    # taking one of those for a column boundary cut every full-width solution in half.
+    # A column only counts as one if problems actually start in it, and one problem is
+    # not enough: a stray number in the middle of some working ("... = 100.") would
+    # otherwise draw a column boundary through the page and cut every solution beside it
+    # in half. The leftmost margin is the page's own and needs no such support.
     detected = column_margins(scan.lines, page.rect.width)
     margins = [
         m
         for m in detected
-        if any(abs(line.rect[0] - m) <= COLUMN_HIT_TOLERANCE for _key, line in entries)
+        if sum(abs(line.rect[0] - m) <= COLUMN_HIT_TOLERANCE for _key, line in entries)
+        >= (1 if m == detected[0] else COLUMN_MIN_PROBLEMS)
     ] or detected[:1]
 
     def column_of(x: float) -> int:
@@ -1149,6 +1153,10 @@ def attribute_runs(
         low, high = run[0].number, run[-1].number
         run_pages = sorted({cand.scan.index for cand in run})
         restarted = low <= RESTART_CEILING and section_high >= MIN_SECTION_LENGTH
+        # Numbering that leaps far past where the section has got to is usually a number
+        # inside the working - "|F| = 100." reads as problem 100 - rather than a run of
+        # exercises nobody set.
+        jumped = low > section_high + MAX_FORWARD_GAP
         heads = [own_head[page] for page in run_pages if page in own_head]
         last_head_page = max(
             (page for page, head in own_head.items() if head == current), default=-1
@@ -1159,9 +1167,10 @@ def attribute_runs(
             # A page of the run names a different section: the boundary is here.
             current = here
             section_high = 0
-        elif restarted and not corroborated(run, runs, index):
-            # A lone low number amid dense maths is a fragment, not a solution - even on
-            # a page that names a section, which is why this outranks the head.
+        elif (restarted or jumped) and not corroborated(run, runs, index):
+            # A number amid dense maths is a fragment, not a solution - whether it reads
+            # low or high - even on a page that names a section, which is why this
+            # outranks the head.
             report.dropped += len(run)
             continue
         elif here is None and restarted and run_pages[0] > last_head_page:
